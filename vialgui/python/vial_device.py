@@ -1,7 +1,10 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
+import json
+import os
 import time
 
 from hidproxy import hid
+from protocol.demo_device import DemoDevice
 from protocol.keyboard_comm import Keyboard
 from protocol.dummy_keyboard import DummyKeyboard
 from util import MSG_LEN, pad_for_vibl
@@ -103,3 +106,20 @@ class VialDummyKeyboard(VialKeyboard):
 
     def close(self):
         pass
+
+
+class VialDemoKeyboard(VialKeyboard):
+    """ Demo mode: a recording of a real board (demo/capture-demo.py) answers instead of a device """
+
+    def __init__(self, path):
+        with open(path, "r") as inf:
+            self.capture = json.load(inf)
+        super().__init__(dict(self.capture["desc"], path="/demo/" + os.path.basename(path)))
+
+    def open(self, override_json=None):
+        self.dev = DemoDevice(self.capture)
+        self.keyboard = Keyboard(self.dev)
+        self.keyboard.reload()
+
+    def title(self):
+        return "{} (demo)".format(self.desc["product_string"])

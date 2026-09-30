@@ -275,6 +275,9 @@ Estimate: A 1–2 h, B ~1 day, C 30 min + a firmware release, D 1–2 days, E ½
   from the vial-qmk tree with the via.c change (09:20 build). Flow change: after an automatic reboot the
   page auto-runs the USB route only once USB has succeeded in that browser (`localStorage`
   `xcmkb_flash_usb_ok`); otherwise it shows the two buttons without asking for a double-tap.
+- 2026-09-30 — Phase 8 (demo mode) and matrix-tester sounds written and desktop-tested, not committed. The board
+  on hand runs tps65-510h with a personal layout, so the published recording waits on a stock tps65-510
+  capture. Knob testing needs firmware support: proposed as Phase 9.
 
 ### Phase 7 — `.vil` load on the web: the "different keyboard" prompt crashes — decided 2026-09-20
 Facts (verified 2026-09-20):
@@ -305,3 +308,112 @@ Facts (verified 2026-09-20):
       `[object ErrorEvent]`.
 - Later, same class, not in scope: `main_window.py:327/333/441` (`QMessageBox.warning`, `msg.exec_()`),
   `textbox_window.py:87/97` (macro text import/export needs the `vialglue` file bridge).
+
+### Phase 8 — demo mode: browse Vial without a keyboard — go-ahead 2026-09-30 (edits allowed, Chrome/Edge only)
+Goal: a *Try the demo* button on the start page (and a shareable `?demo` link) that opens the full Vial UI
+on a virtual SoflePLUS2 TPS65 v5.10 (`sofleplus2/keymaps/tps65-510`), so clients can see the keymap,
+lighting, trackpad and OLED tabs before buying or connecting.
+
+Facts (verified 2026-09-30):
+- Every read and write in the app goes through `Keyboard.usb_send(dev, 32-byte request)` → `dev.write()` /
+  `dev.read()` (`util.hid_send`). The custom tabs (per-key RGB, indicators, trackpad, OLED) are probed
+  inside `Keyboard.reload_persistent_rgb` through VialRGB GET sub-commands. So a fake `dev` that answers
+  those requests runs the whole app unchanged. The layout definition is part of those answers.
+- The existing `VialDummyKeyboard`/`DummyKeyboard` (desktop *Load dummy JSON…*, hidden on web) is a blank
+  KC_NO keymap with 4 layers and no custom features, so it is not usable as a showcase. Making it one would
+  mean overriding every `Keyboard` method and keeping that copy in step with the protocol.
+- The keyboard's state cannot be rebuilt from the firmware source alone. The keymap is in `keymap.c` (78 KB,
+  custom defines), and the state of the custom features (RGB, indicators, trackpad, OLED) is set by firmware
+  code at EEPROM init, not by tables. A one-time capture from a real board is exact and much simpler.
+- Web startup: `index.html connect()` → WebHID pick → `_vialglue_set_device_desc` → `webmain.main`.
+  `MainWindow.__init__` calls `find_vial_devices` once (`on_click_refresh`), and on web `hid.enumerate()`
+  probes the WebHID device. A demo must therefore be selected before `MainWindow` is created, and it must
+  bypass `hid.enumerate()`.
+- These screens read from the board again after a write, so replaying the capture alone would undo demo
+  edits: QMK Settings (`rebuild` re-reads everything, and a `.vil` load triggers `rebuild`), *Reset*;
+  *Revert* in Tap Dance / Combos / Key Overrides / Alt Repeat (`reload_dynamic`) and in Macros
+  (`reload_macros`); Lighting `update_from_keyboard` (`reload_rgb`). Keymap, encoders, trackpad, OLED and
+  per-key colours work from the Python-side copy after the load.
+- tps65-510: `lighting: vialrgb`, matrix 10×7, 8 custom keycodes, `VIAL_INSECURE`, PRODUCT
+  `SoflePLUS2 TPS65 v5.10`, UID `6BE4…`. No board was connected to this PC on 2026-09-30. `hidapi` and
+  PyQt5 5.15.11 are installed locally (Python 3.14.3), so the capture and a desktop test can run here.
+
+Plan:
+- [x] A — `demo/capture-demo.py` (desktop, run once per firmware release). Opens the connected Vial board
+      with the vendored code (`vialgui/python` on `sys.path`, hidapi) and wraps the device to record every
+      request → response. Runs `Keyboard.reload()` (which covers the custom tabs), plus
+      `get_unlock_status`/`get_unlock_keys`/`matrix_poll`. Writes `demo/<board>.json`:
+      `{desc: {vendor_id, product_id, product_string, …}, captured, responses: {request_hex: response_hex}}`
+      (tens of KB). Prints a summary (layers, non-empty macros / tap dances / combos) and warns that
+      whatever is on the board, macros included, becomes public in the demo.
+- [x] B — `vialgui/python/protocol/demo_device.py`: `DemoDevice` (`write`/`read`/`close`, like the web
+      `hiddevice`) answers from the capture. It keeps state for the SET→GET pairs listed above (QMK
+      settings, dynamic entries, macro buffer, VialRGB mode; keymap buffer and encoders too, since that
+      is cheap), so edits stick for the session. An unknown request is echoed back (VIA's reply to a
+      SET) and logged, and the bootloader jump is ignored.
+- [x] C — `vial_device.VialDemoKeyboard(VialKeyboard)`: desc taken from the capture, path `/demo/<name>`,
+      `open()` → `Keyboard(DemoDevice(...))`, title `"<product> [demo]"`. `util.find_vial_devices`
+      returns only that when demo mode is set; the demo-mode flag is set by `webmain.main(app, demo=name)`
+      before `MainWindow` is created.
+- [x] D — `MainWindow` in demo mode: a banner above the tabs ("Demo — no keyboard connected. Edits stay in
+      this browser tab only; *Save current layout…* still exports a .vil"). Hide the Security menu, the
+      Matrix tester and the Updates tab, because each of these needs a physical board.
+- [x] E — page: a *Try the demo (no keyboard)* button under *Start Vial*, enabled at `notify_alive`.
+      `?demo` in the URL starts it without a click, so the GitBook or shop can link straight in.
+      `startDemo()` = `mountAppData()` + `webmain.main(qtApp, demo="sofleplus2-tps65-510")`, with no
+      WebHID. `layoutFileName()` uses the demo product name, and `flash_firmware` is ignored in demo mode.
+      `build.sh` copies `demo/*.json` into the preloaded `usr/local/demo/`.
+- [ ] F — test before pushing: run the vendored app on desktop (`QT_QPA_PLATFORM=windows`) in demo mode
+      against the capture. Click through every tab; check that QMK Settings *Save* survives a `.vil` load,
+      that the Revert buttons work, and that `.vil` save/load round-trips. Then push, wait for CI
+      (~1.5 min) and verify in Chrome, including the `?demo` link on a first visit (the coi-serviceworker
+      reload must keep the query string).
+
+- [x] G — matrix tester sounds (asked 2026-09-30, folded in): a *Sound* checkbox (web only, remembered in
+      QSettings) and a tone when a key newly registers: a short high beep if exactly one key is down, a lower
+      double beep if two or more are down at once (a short, a ghost, or a roll). Only keys in the layout
+      count. `util.play_sound()` → new `vialglue.play_sound(name)` (`main.c`) → the page plays it with
+      WebAudio. The matrix tester stays hidden in demo mode.
+- [x] H — the published recording is `demo/sofleplus2-tps65-510h.json` (the page's `DEMO_BOARD`). The user decided
+      2026-09-30 that 510 vs 510h does not matter, since only the trackpad rotation differs, so the demo keeps
+      the board's own identity. The board's personal keymap was replaced by the stock one with the new
+      `demo/stock-keymap.py`: it reads `keymaps`/`encoder_map` out of the firmware `.elf` and rewrites the
+      keymap-buffer and encoder answers, KC_TRNS past the compiled layers (as `dynamic_keymap_reset` does);
+      OLED layer 8's `GAME` label went back to the firmware default `L8   `. Verified through the app: thumbs
+      MO(1)/MO(2), knobs per `keymap.c` (the map is stored {cw, ccw}, Vial answers ccw first), layer 8
+      transparent, and no macros, tap dances, combos, key overrides or alt-repeat keys. Lighting, trackpad
+      and QMK settings stay as recorded from that board.
+
+Status 2026-09-30 (not committed, not pushed):
+- A–E and G are written. Tested on the desktop (`QT_QPA_PLATFORM=windows`, harness in the session scratchpad)
+  with the real `MainWindow`: 11 tabs, Matrix tester / Updates / Security hidden, banner shown, and 13 checks
+  passed: keymap, encoder, QMK setting (survives the `rebuild` a .vil load triggers; Reset restores it),
+  tap dance, combo, macro, VialRGB mode/speed, sleep timeout, trackpad settings/layers, OLED names, and a
+  `.vil` load through `on_layout_loaded`. The only request without a recorded answer was `09` (lighting
+  save; echoing it is right). Sound triggering was tested with simulated matrix scans. The page's scripts
+  pass `node --check`. The WASM build itself can only be tested after CI.
+- Capture taken (363 answers, identical in two passes) from the board on this PC. That board runs
+  **tps65-510h** (`SoflePLUS2 TPS65 Horizontal v5.10h`, PID 0x0288, UID 4F8B…), not tps65-510. Its
+  `keymap.c`/`vial.json` and the compiled default keymaps are byte-identical to tps65-510's, so the content
+  would match. It is also **personalised**: 9 keys in layers 0–3 differ from the compiled default (layer
+  keys, e.g. MO(1)→MO(2)), layer 8 is a gaming layer (OLED name `GAME`), and the knob map differs. Kept
+  as the untracked `demo/raw-510h.json` for testing only; what is published is the stock version (H).
+- Next firmware release: record any board (`capture-demo.py`), then `stock-keymap.py` with that release's .elf.
+- Flashing resets a board to stock: vial-qmk's `via_eeprom_is_valid` compares a random per-build
+  `BUILD_ID` (`util/build_id.py`), so any newly flashed build wipes the saved layout.
+- Chrome/Edge only, as decided: `show_error` hides the demo button along with *Start Vial*.
+
+### Phase 9 — knob (encoder) test in the matrix tester — proposed 2026-09-30, needs a firmware release
+Facts (verified 2026-09-30): the matrix tester reads `VIA_SWITCH_MATRIX_STATE`, which carries only the key
+matrix. The knobs are not in it (they show as widgets with `encoder_idx`/`encoder_dir` but no row/col), and
+no firmware command reports knob turns to the host. In vial-qmk, every knob step from both halves passes
+through `encoder_handle_queue()` (`quantum/encoder.c:30`) on the USB half, so one core change covers all
+XCMKB boards. Custom GETs are dispatched in `quantum/vialrgb.c` (`vialrgb_get_value`); 0x50–0x53 are taken
+and 0x54 is reserved for the firmware ID (Phase 6 C2).
+Plan:
+- Firmware (vial-qmk core): a uint8 step counter per knob and direction, bumped in `encoder_handle_queue`,
+  and a new VialRGB GET 0x55 that returns them with a marker byte, so the app can tell older firmware
+  (which echoes the request).
+- App (matrix tester): poll 0x55 with the matrix; when a counter moves, light that knob's ↺/↻ widget and
+  play the "ok" sound. The option does not appear on firmware without 0x55.
+- Works only on boards flashed with the release that carries it (v5.11 or later).

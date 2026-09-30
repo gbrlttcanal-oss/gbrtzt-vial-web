@@ -24,6 +24,10 @@ VIBL_SERIAL_NUMBER_MAGIC = "vibl:d4f8159c"
 
 MSG_LEN = 32
 
+# Demo mode (web start page, *Try the demo*): path of a recorded board, see demo/capture-demo.py.
+# Set before MainWindow is created; the recording then stands in for every device.
+DEMO_CAPTURE = None
+
 # these should match what we have in vial-qmk/keyboards/vial_example
 # so that people don't accidentally reuse a sample keyboard UID
 EXAMPLE_KEYBOARDS = [
@@ -94,7 +98,11 @@ def is_rawhid(desc, quiet):
 
 
 def find_vial_devices(via_stack_json, sideload_vid=None, sideload_pid=None, quiet=False):
-    from vial_device import VialBootloader, VialKeyboard, VialDummyKeyboard
+    from vial_device import VialBootloader, VialKeyboard, VialDummyKeyboard, VialDemoKeyboard
+
+    # demo mode shows the recorded board only and never touches HID (there may be no WebHID device)
+    if DEMO_CAPTURE:
+        return [VialDemoKeyboard(DEMO_CAPTURE)]
 
     filtered = []
     for dev in hid.enumerate():
@@ -162,6 +170,15 @@ def persist_app_data():
         # older vial-web bridges do not have it; then the data just does not persist
         if hasattr(vialglue, "fs_sync"):
             vialglue.fs_sync()
+
+
+def play_sound(name):
+    """ Short feedback tone: "ok" or "multi". The web page plays it (WebAudio); the desktop build has none. """
+    if sys.platform == "emscripten":
+        import vialglue
+        # older vial-web bridges do not have it
+        if hasattr(vialglue, "play_sound"):
+            vialglue.play_sound(name)
 
 
 def make_scrollable(layout):

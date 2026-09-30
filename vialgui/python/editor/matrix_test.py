@@ -1,13 +1,14 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
-from PyQt5.QtWidgets import QVBoxLayout, QPushButton, QWidget, QHBoxLayout, QLabel
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtWidgets import QVBoxLayout, QPushButton, QWidget, QHBoxLayout, QLabel, QCheckBox
+from PyQt5.QtCore import Qt, QTimer, QSettings
 
 import math
+import sys
 
 from editor.basic_editor import BasicEditor
 from protocol.constants import VIAL_PROTOCOL_MATRIX_TESTER
 from widgets.keyboard_widget import KeyboardWidget
-from util import tr
+from util import tr, play_sound
 from vial_device import VialKeyboard
 from unlocker import Unlocker
 
@@ -32,6 +33,15 @@ class MatrixTest(BasicEditor):
         self.addLayout(layout)
 
         btn_layout = QHBoxLayout()
+        # a tone per registered key, a different one when two or more keys register at once (a short or a
+        # ghost); the web page plays them, so the option only exists there
+        self.chk_sound = QCheckBox(tr("MatrixTest", "Sound"))
+        self.chk_sound.setToolTip(tr("MatrixTest", "Beep when a key registers; a lower double beep when two or "
+                                                   "more keys register at the same time"))
+        self.chk_sound.setChecked(QSettings("Vial", "Vial").value("matrix_tester_sound", True, bool))
+        self.chk_sound.toggled.connect(lambda on: QSettings("Vial", "Vial").setValue("matrix_tester_sound", on))
+        self.chk_sound.setVisible(sys.platform == "emscripten")
+        btn_layout.addWidget(self.chk_sound)
         btn_layout.addStretch()
         self.unlock_lbl = QLabel(tr("MatrixTest", "Unlock the keyboard before testing:"))
         btn_layout.addWidget(self.unlock_lbl)
@@ -42,6 +52,7 @@ class MatrixTest(BasicEditor):
         self.keyboard = None
         self.device = None
         self.polling = False
+        self.pressed = set()
 
         self.timer = QTimer()
         self.timer.timeout.connect(self.matrix_poller)
@@ -128,6 +139,7 @@ class MatrixTest(BasicEditor):
                 matrix[row][col] = (row_data[col_byte] >> col_mod) & 1
 
         # write matrix state to keyboard widget
+        pressed = set()
         for w in self.keyboardWidget.widgets:
             if w.desc.row is not None and w.desc.col is not None:
                 row = w.desc.row
@@ -137,6 +149,12 @@ class MatrixTest(BasicEditor):
                     w.setPressed(matrix[row][col])
                     if matrix[row][col]:
                         w.setOn(True)
+                        pressed.add((row, col))
+
+        # sound on a newly registered key: how many keys are down together tells a clean press from a short
+        if pressed - self.pressed and self.chk_sound.isChecked():
+            play_sound("ok" if len(pressed) == 1 else "multi")
+        self.pressed = pressed
 
         self.keyboardWidget.update_layout()
         self.keyboardWidget.update()
@@ -146,6 +164,7 @@ class MatrixTest(BasicEditor):
         Unlocker.unlock(self.keyboard)
 
     def activate(self):
+        self.pressed = set()
         self.grabber.grabKeyboard()
         self.timer.start(20)
 

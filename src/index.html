@@ -32,6 +32,11 @@ body {
     font-size: 250%;
     padding: 1em;
 }
+#demo_btn {
+    font-size: 120%;
+    padding: 0.5em 1.5em;
+    margin-top: 1em;
+}
 #version {
     position: absolute;
     right: 0;
@@ -136,6 +141,7 @@ body {
 <div id="startup">
     <div id="startup_inner">
         <input id="startup_btn" type="button" onclick="connect()" value="Start Vial" disabled="true" /><br>
+        <input id="demo_btn" type="button" onclick="startDemo()" value="Try the demo (no keyboard needed)" disabled="true" /><br>
         <div id="error" style="display:none">
             <p id="error_msg"></p>
             <p>You can check web browser support at <a href="https://caniuse.com/webhid" target="_blank">caniuse.com</a>.<br>
@@ -224,6 +230,11 @@ body {
             document.getElementById("startup").style.display = "none";
         } else if (e.data.cmd == "notify_alive") {
             document.getElementById("startup_btn").disabled = false;
+            document.getElementById("demo_btn").disabled = false;
+            // a ?demo link (docs, shop) opens the demo straight away
+            if (new URLSearchParams(window.location.search).has("demo") && !g_started) {
+                startDemo();
+            }
         } else if (e.data.cmd == "load_layout") {
             loadLayout();
         } else if (e.data.cmd == "save_layout") {
@@ -237,7 +248,45 @@ body {
         } else if (e.data.cmd == "download_file") {
             downloadFile(e.data.path);
         } else if (e.data.cmd == "flash_firmware") {
-            flashFirmware(e.data.entry);
+            if (!g_demo) {
+                flashFirmware(e.data.entry);
+            }
+        } else if (e.data.cmd == "play_sound") {
+            playSound(e.data.name);
+        }
+    }
+
+    // Feedback tones for the matrix tester: "ok" = one key registered, "multi" = two or more at once.
+    // The page has had a click (Start Vial) by then, so the browser lets the audio context run.
+    var g_audio = null;
+
+    function playSound(name) {
+        try {
+            if (!g_audio) {
+                g_audio = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (g_audio.state === "suspended") {
+                g_audio.resume();
+            }
+            var tones = (name === "multi")
+                ? [{type: "square", freq: 330, start: 0, len: 0.09}, {type: "square", freq: 247, start: 0.11, len: 0.14}]
+                : [{type: "sine", freq: 1320, start: 0, len: 0.07}];
+            var now = g_audio.currentTime;
+            tones.forEach(function(t) {
+                var osc = g_audio.createOscillator();
+                var gain = g_audio.createGain();
+                osc.type = t.type;
+                osc.frequency.value = t.freq;
+                gain.gain.setValueAtTime(0.0001, now + t.start);
+                gain.gain.exponentialRampToValueAtTime(t.type === "square" ? 0.06 : 0.2, now + t.start + 0.005);
+                gain.gain.exponentialRampToValueAtTime(0.0001, now + t.start + t.len);
+                osc.connect(gain);
+                gain.connect(g_audio.destination);
+                osc.start(now + t.start);
+                osc.stop(now + t.start + t.len + 0.02);
+            });
+        } catch (e) {
+            console.error("playSound:", e);
         }
     }
 
@@ -358,7 +407,8 @@ body {
 
     // Default .vil name for the save dialog: the keyboard's product name, made filename-safe
     function layoutFileName() {
-        var name = (typeof g_device !== "undefined" && g_device.productName) ? g_device.productName : "";
+        var name = (typeof g_device !== "undefined" && g_device.productName) ? g_device.productName :
+                   (g_demo ? DEMO_BOARD.name : "");
         name = name.replace(/[^A-Za-z0-9._ -]+/g, "_").replace(/^[\s._-]+|[\s._-]+$/g, "");
         return (name || "layout") + ".vil";
     }
@@ -390,17 +440,44 @@ body {
         }
     }
 
+    // The demo: a recorded board (demo/<file>.json, made by demo/capture-demo.py) instead of a WebHID device
+    const DEMO_BOARD = {file: "sofleplus2-tps65-510h", name: "SoflePLUS2 TPS65 Horizontal v5.10h"};
+    var g_started = false;
+    var g_demo = false;
+
+    async function startDemo() {
+        if (g_started) {
+            return;
+        }
+        g_started = true;
+        g_demo = true;
+        document.getElementById("startup_btn").disabled = true;
+        var btn = document.getElementById("demo_btn");
+        btn.disabled = true;
+        btn.value = "Starting the demo...";
+        await mountAppData();
+        PThread.runningWorkers[0].postMessage({
+            cmd: "py",
+            payload: `import webmain;webmain.main(qtApp, demo=${JSON.stringify(DEMO_BOARD.file)})`,
+        });
+        g_animation = setInterval(update_animation, 500);
+        g_animation_counter = 0;
+    }
+
     async function connect() {
         var btn = document.getElementById("startup_btn");
 
         btn.disabled = true;
+        document.getElementById("demo_btn").disabled = true;
         btn.value = "Requesting device list...";
         devices = await navigator.hid.requestDevice({filters: [{usagePage: 0xFF60, usage: 0x61}]});
         if (devices.length != 1) {
             btn.value = "Start Vial";
             btn.disabled = false;
+            document.getElementById("demo_btn").disabled = false;
             return;
         }
+        g_started = true;
         btn.value = "Connecting to the device...";
         await devices[0].open();
         devices[0].oninputreport = function(ev) {
@@ -445,11 +522,13 @@ body {
 
     function update_animation() {
         g_animation_counter = (g_animation_counter + 1) % 5;
-        document.getElementById("startup_btn").value = "Starting up" + ".".repeat(g_animation_counter + 1);
+        document.getElementById(g_demo ? "demo_btn" : "startup_btn").value =
+            (g_demo ? "Starting the demo" : "Starting up") + ".".repeat(g_animation_counter + 1);
     }
 
     function show_error(e) {
         document.getElementById("startup_btn").style.display = "none";
+        document.getElementById("demo_btn").style.display = "none";
         document.getElementById("error").style.display = "";
         document.getElementById("error_msg").innerHTML = e;
     }

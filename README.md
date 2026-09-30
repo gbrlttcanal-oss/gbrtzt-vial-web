@@ -27,6 +27,22 @@ Output lands in `src/build`. It uses a pthread build, so the page must be served
 cross-origin isolated (COOP/COEP headers); `coi-serviceworker.js` handles that on hosts
 such as GitHub Pages that cannot set headers. WebHID requires Chrome/Chromium/Edge.
 
+## Demo
+
+*Try the demo* on the start page, or a link to `https://superxc3.github.io/vial-web/?demo`, runs the full app
+without a keyboard. It uses `demo/sofleplus2-tps65-510h.json`, a recording of what a real board answers
+(`vialgui/python/protocol/demo_device.py` replays it; edits last until the page reloads). To refresh it for a
+new firmware, plug a board in and run:
+
+```
+python demo/capture-demo.py sofleplus2-tps65-510h
+python demo/stock-keymap.py demo/sofleplus2-tps65-510h.json <firmware .elf>   # board has a personal layout
+```
+
+Everything in the recording is public. `capture-demo.py` prints what is on the board and warns about macros;
+`stock-keymap.py` puts back the keymap and knob map the firmware ships with. A new file name also goes into
+`DEMO_BOARD` in `src/index.html`.
+
 ## Firmware catalogue
 
 `firmware/` holds the `.uf2` files offered by the *Updates* tab and `manifest.json`, which is generated

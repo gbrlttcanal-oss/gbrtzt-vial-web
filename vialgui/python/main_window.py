@@ -31,8 +31,9 @@ from editor.updates import Updates
 from tabbed_keycodes import TabbedKeycodes
 from editor.tap_dance import TapDance
 from unlocker import Unlocker
+import util
 from util import tr, EXAMPLE_KEYBOARDS, KeycodeDisplay, EXAMPLE_KEYBOARD_PREFIX
-from vial_device import VialKeyboard
+from vial_device import VialKeyboard, VialDemoKeyboard
 from editor.matrix_test import MatrixTest
 
 import themes
@@ -126,8 +127,15 @@ class MainWindow(QMainWindow):
         self.lbl_no_devices.setTextFormat(Qt.RichText)
         self.lbl_no_devices.setAlignment(Qt.AlignCenter)
 
+        # demo mode (web start page, *Try the demo*): say what this is, since no keyboard is connected
+        self.lbl_demo = QLabel()
+        self.lbl_demo.setWordWrap(True)
+        self.lbl_demo.setStyleSheet("QLabel { background-color: #2d5f8b; color: white; padding: 6px; }")
+        self.lbl_demo.hide()
+
         layout = QVBoxLayout()
         layout.addLayout(layout_combobox)
+        layout.addWidget(self.lbl_demo)
         layout.addWidget(self.tabs, 1)
         layout.addWidget(self.lbl_no_devices)
         layout.setAlignment(self.lbl_no_devices, Qt.AlignHCenter)
@@ -337,8 +345,18 @@ class MainWindow(QMainWindow):
         self.refresh_tabs()
 
     def rebuild(self):
-        # don't show "Security" menu for bootloader mode, as the bootloader is inherently insecure
-        self.security_menu.menuAction().setVisible(isinstance(self.autorefresh.current_device, VialKeyboard))
+        demo = isinstance(self.autorefresh.current_device, VialDemoKeyboard)
+        # don't show "Security" menu for bootloader mode, as the bootloader is inherently insecure;
+        # nor in demo mode, where there is no keyboard to lock or reboot
+        self.security_menu.menuAction().setVisible(isinstance(self.autorefresh.current_device, VialKeyboard)
+                                                   and not demo)
+        self.lbl_demo.setVisible(demo)
+        if demo:
+            self.lbl_demo.setText(tr("MainWindow",
+                                     "<b>Demo: {}</b> &mdash; no keyboard is connected. Look around and change "
+                                     "anything; changes are lost when the page reloads. "
+                                     "<i>File &rarr; Save current layout...</i> keeps them as a .vil file.")
+                                  .format(self.autorefresh.current_device.desc["product_string"]))
 
         self.about_keyboard_act.setVisible(False)
         if isinstance(self.autorefresh.current_device, VialKeyboard):
@@ -360,6 +378,9 @@ class MainWindow(QMainWindow):
         self.tabs.clear()
         for container, lbl in self.editors:
             if not container.valid():
+                continue
+            # these need a physical keyboard
+            if util.DEMO_CAPTURE and container in (self.matrix_tester, self.updates):
                 continue
 
             c = EditorContainer(container)

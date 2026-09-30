@@ -57,7 +57,15 @@ def web_get_resource(name):
     return "/usr/local/" + name
 
 
-def main(app):
+def main(app, demo=None):
+    """ demo: name of a recorded board under usr/local/demo/ to show instead of a WebHID device """
+    if demo is not None:
+        import re
+        import util
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", demo):
+            raise ValueError("bad demo name {!r}".format(demo))
+        util.DEMO_CAPTURE = web_get_resource("demo/{}.json".format(demo))
+
     font = app.font()
     font.setPointSize(10)
     app.setFont(font)

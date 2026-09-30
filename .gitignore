@@ -4,3 +4,5 @@ deps
 build
 via-keymap-precompiled
 __pycache__/
+# demo recordings for local testing only (e.g. from a personal board); the published ones are demo/<board>.json
+demo/raw-*.json

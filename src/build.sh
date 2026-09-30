@@ -27,6 +27,9 @@ cp ../simpleeval.py usr/local/lib/python3.11
 # Firmware catalogue: the manifest is preloaded so the Updates tab can read it like the other JSON
 # resources; the .uf2 files stay outside the bundle and are fetched/downloaded as plain files.
 cp ../../firmware/manifest.json usr/local/firmware_manifest.json
+# Demo mode (*Try the demo* on the start page): recorded boards, made by demo/capture-demo.py
+mkdir -p usr/local/demo
+cp ../../demo/*.json usr/local/demo/
 emcc \
     --preload-file="./usr/local" \
     -I ../../deps/cpython/Include/ \
