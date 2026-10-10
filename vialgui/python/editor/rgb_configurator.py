@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 import json
+import math
 import os
 
 from PyQt5 import QtCore
@@ -9,6 +10,7 @@ from PyQt5.QtWidgets import QWidget, QPushButton, QHBoxLayout, QVBoxLayout, QSiz
     QSlider, QComboBox, QColorDialog, QCheckBox, QScrollArea, QApplication, QButtonGroup, QSpinBox
 
 from editor.basic_editor import BasicEditor
+from kle_serial import Key
 from widgets.clickable_label import ClickableLabel
 from widgets.keyboard_widget import KeyboardWidget
 from util import tr, persist_app_data
@@ -20,6 +22,117 @@ def _colors_save_path(keyboard_id):
     data_dir = QStandardPaths.writableLocation(QStandardPaths.AppLocalDataLocation)
     os.makedirs(data_dir, exist_ok=True)
     return os.path.join(data_dir, "customise_colors_{:016x}.json".format(keyboard_id))
+
+
+# LED-only widgets (underglow and any other LED with no matrix position)
+LED_ONLY_PITCH = 1.15      # key-to-key pitch inside the grid (keys stay 1u), key units
+LED_ONLY_HALF_GAP = 1.0    # extra space between the left- and right-half groups, key units
+LED_ONLY_TOP_GAP = 0.25    # space between the lowest key above and the first LED row, key units
+
+
+def _key_bbox(k):
+    """(min_x, min_y, max_x, max_y) of a key in key units, rotation included."""
+    a = math.radians(k.rotation_angle)
+    xs, ys = [], []
+    for px, py in ((k.x, k.y), (k.x + k.width, k.y), (k.x, k.y + k.height),
+                   (k.x + k.width, k.y + k.height)):
+        dx, dy = px - k.rotation_x, py - k.rotation_y
+        xs.append(k.rotation_x + dx * math.cos(a) - dy * math.sin(a))
+        ys.append(k.rotation_y + dx * math.sin(a) + dy * math.cos(a))
+    return min(xs), min(ys), max(xs), max(ys)
+
+
+def _led_keys(keyboard):
+    """Keymap keys that sit on an LED; keys and knobs with no LED are left out of the RGB tabs."""
+    return [k for k in keyboard.keys
+            if not k.decal and k.row is not None
+            and keyboard.vialrgb_led_map.get((k.row, k.col)) is not None]
+
+
+def build_led_only_keys(keyboard, keys):
+    """1u key descriptors for LEDs that are not under any key (e.g. underglow).
+
+    The firmware reports matrix position 0xFF for them, so vial.json has no key to
+    click. They are laid out as a small grid centred under the keymap: the left-half
+    LEDs (g_led_config x < 112) on the left, the right half on the right with a wider
+    gap between the two, each half split into an upper and a lower row by the LED's y
+    and ordered by its x, so the grid reads the way the LEDs sit on the board. Each
+    carries `led_index`; use led_for_widget() rather than vialrgb_led_map to resolve
+    any widget.
+    """
+    leds = getattr(keyboard, "vialrgb_unkeyed_leds", [])
+    info = getattr(keyboard, "vialrgb_led_info", [])
+    leds = [i for i in leds if i < len(info)]
+    if not leds or not keys:
+        return []
+
+    # rows[row][half] = LED indices, ordered left to right
+    rows = [[[], []], [[], []]]
+    for idx in leds:
+        lx, ly, _flags = info[idx]
+        rows[0 if ly < 32 else 1][0 if lx < 112 else 1].append(idx)
+    for row in rows:
+        for half in row:
+            half.sort(key=lambda i: info[i][0])
+    left_w = max(len(rows[0][0]), len(rows[1][0]))
+    right_w = max(len(rows[0][1]), len(rows[1][1]))
+
+    boxes = [_key_bbox(k) for k in keys]
+    center_x = (min(b[0] for b in boxes) + max(b[2] for b in boxes)) / 2
+    p = LED_ONLY_PITCH
+    gw = lambda n: (n * p - (p - 1)) if n else 0   # width of a group of n keys
+    gap = LED_ONLY_HALF_GAP if left_w and right_w else 0
+    x0 = center_x - (gw(left_w) + gap + gw(right_w)) / 2
+    x1 = x0 + gw(left_w) + gap  # where the right-half group starts
+    # Start below the lowest key that overlaps the grid horizontally
+    span_l, span_r = x0, x1 + gw(right_w)
+    below = [b[3] for b in boxes if b[2] > span_l and b[0] < span_r]
+    top = (max(below) if below else max(b[3] for b in boxes)) + LED_ONLY_TOP_GAP
+
+    out = []
+    for r, row in enumerate(rows):
+        for h, half in enumerate(row):
+            # each group hugs the gap: left group right-aligned, right group left-aligned
+            start = x0 + (left_w - len(half)) * p if h == 0 else x1
+            for n, idx in enumerate(half):
+                k = Key()
+                k.x = start + n * p
+                k.y = top + r * p
+                k.labels = [""] * 12
+                k.row = k.col = None
+                k.encoder_idx = k.encoder_dir = None
+                k.layout_index = k.layout_option = -1
+                k.led_index = idx
+                out.append(k)
+    return out
+
+
+def led_for_widget(keyboard, widget):
+    """LED index shown by a keyboard widget, or None if it has no LED."""
+    led = getattr(widget.desc, "led_index", None)
+    if led is not None:
+        return led
+    if widget.desc.row is None or widget.desc.col is None:
+        return None
+    return keyboard.vialrgb_led_map.get((widget.desc.row, widget.desc.col))
+
+
+def set_rgb_keys(kb_widget, keyboard):
+    """Load an RGB tab's KeyboardWidget: keys that have an LED, plus LED-only widgets.
+
+    Knobs and LED-less keys (e.g. disc directions/click) are not shown -- there is
+    nothing to colour or assign on them.
+    """
+    keys = _led_keys(keyboard)
+    if not keys:
+        # firmware reported no key->LED mapping at all: show the full layout rather
+        # than an empty tab (the old behaviour), plus any LED-only widgets
+        keys = [k for k in keyboard.keys if not k.decal]
+    kb_widget.set_keys(keys + build_led_only_keys(keyboard, keys), [])
+    for w in kb_widget.widgets_for_layout + kb_widget.common_widgets:
+        if getattr(w.desc, "led_index", None) is not None:
+            w.tooltip = tr("RGBConfigurator", "Underglow LED {}").format(w.desc.led_index)
+
 
 VIALRGB_DIRECT_IDX = 45
 
@@ -424,7 +537,7 @@ class PerKeyRGBWidget(QWidget):
     def __init__(self, layout_editor):
         super().__init__()
         self.keyboard = None
-        self._selected_positions = set()  # set of (row, col) tuples with a valid LED
+        self._selected_leds = set()  # LED indices (keys and LED-only widgets)
 
         outer = QVBoxLayout()
         outer.setContentsMargins(0, 0, 0, 0)
@@ -432,6 +545,7 @@ class PerKeyRGBWidget(QWidget):
 
         lbl = QLabel(tr("RGBConfigurator",
             "Click to select a key. Windows: Ctrl+Click, macOS: Cmd+Click to add/remove from selection.\n"
+            "Squares under the keyboard are underglow LEDs.\n"
             "Remember to click Save (bottom-right) to keep your colours."))
         lbl.setWordWrap(True)
         lbl.setAlignment(Qt.AlignCenter)
@@ -473,7 +587,7 @@ class PerKeyRGBWidget(QWidget):
 
     def set_keyboard(self, keyboard):
         self.keyboard = keyboard
-        self._selected_positions = set()
+        self._selected_leds = set()
         self.kb_widget.deselect()
         self.lbl_selected.setText(tr("RGBConfigurator", "No key selected"))
         self.btn_select_all.setEnabled(keyboard is not None)
@@ -481,7 +595,7 @@ class PerKeyRGBWidget(QWidget):
         self.btn_reset.setEnabled(False)
         if keyboard is None:
             return
-        self.kb_widget.set_keys(keyboard.keys, keyboard.encoders)
+        set_rgb_keys(self.kb_widget, keyboard)
         self._sync_selected_widgets()
         self.refresh_key_colors()
 
@@ -489,12 +603,8 @@ class PerKeyRGBWidget(QWidget):
         if self.keyboard is None:
             return
         for widget in self.kb_widget.widgets:
-            row, col = widget.desc.row, widget.desc.col
-            if row is None or col is None:
-                widget.setBgColor(None)
-                continue
-            led = self.keyboard.vialrgb_led_map.get((row, col))
-            if led is not None:
+            led = led_for_widget(self.keyboard, widget)
+            if led is not None and led < len(self.keyboard.vialrgb_direct_colors):
                 h, s, v = self.keyboard.vialrgb_direct_colors[led]
                 color = QColor.fromHsvF(h / 255.0, s / 255.0, v / 255.0) if (h or s or v) else None
                 widget.setBgColor(color)
@@ -504,14 +614,13 @@ class PerKeyRGBWidget(QWidget):
 
     def _update_selection_ui(self):
         """Refresh the label, button states, and key highlights based on current selection."""
-        n = len(self._selected_positions)
+        n = len(self._selected_leds)
         if n == 0:
             self.lbl_selected.setText(tr("RGBConfigurator", "No key selected"))
             self.btn_color.setEnabled(False)
             self.btn_reset.setEnabled(False)
         elif n == 1:
-            pos = next(iter(self._selected_positions))
-            led = self.keyboard.vialrgb_led_map[pos]
+            led = next(iter(self._selected_leds))
             self.lbl_selected.setText(tr("RGBConfigurator", "LED {}").format(led))
             self.btn_color.setEnabled(True)
             self.btn_reset.setEnabled(True)
@@ -524,58 +633,48 @@ class PerKeyRGBWidget(QWidget):
     def _sync_selected_widgets(self):
         """Mark key widgets as selected so paintEvent can draw a highlight border."""
         for widget in self.kb_widget.widgets:
-            row, col = widget.desc.row, widget.desc.col
-            widget.selected = (row is not None and col is not None
-                               and (row, col) in self._selected_positions)
+            led = led_for_widget(self.keyboard, widget) if self.keyboard is not None else None
+            widget.selected = led is not None and led in self._selected_leds
         self.kb_widget.update()
 
     def on_key_clicked(self):
         key = self.kb_widget.active_key
         if key is None or self.keyboard is None:
             return
-        row, col = key.desc.row, key.desc.col
-        if row is None or col is None:
-            self._selected_positions = set()
-            self._update_selection_ui()
-            return
-        pos = (row, col)
-        led = self.keyboard.vialrgb_led_map.get(pos)
+        led = led_for_widget(self.keyboard, key)
         if led is None:
-            # Key exists in layout but has no LED — don't include it
+            # Key exists in layout but has no LED -- don't include it
             if not (QApplication.keyboardModifiers() & Qt.ControlModifier):
-                self._selected_positions = set()
+                self._selected_leds = set()
             self._update_selection_ui()
             return
 
         if QApplication.keyboardModifiers() & Qt.ControlModifier:
-            # Ctrl+click: toggle this key in the selection
-            if pos in self._selected_positions:
-                self._selected_positions.discard(pos)
+            # Ctrl+click: toggle this LED in the selection
+            if led in self._selected_leds:
+                self._selected_leds.discard(led)
             else:
-                self._selected_positions.add(pos)
+                self._selected_leds.add(led)
         else:
-            # Plain click: select only this key
-            self._selected_positions = {pos}
+            # Plain click: select only this LED
+            self._selected_leds = {led}
 
         self._update_selection_ui()
 
     def on_select_all(self):
         if self.keyboard is None:
             return
-        self._selected_positions = {
-            (w.desc.row, w.desc.col)
-            for w in self.kb_widget.widgets
-            if w.desc.row is not None and w.desc.col is not None
-            and self.keyboard.vialrgb_led_map.get((w.desc.row, w.desc.col)) is not None
+        self._selected_leds = {
+            led for led in (led_for_widget(self.keyboard, w) for w in self.kb_widget.widgets)
+            if led is not None
         }
         self._update_selection_ui()
 
     def on_pick_color(self):
-        if not self._selected_positions or self.keyboard is None:
+        if not self._selected_leds or self.keyboard is None:
             return
-        # Use the first selected key's current color as the dialog starting point
-        pos = next(iter(self._selected_positions))
-        led = self.keyboard.vialrgb_led_map[pos]
+        # Use the first selected LED's current color as the dialog starting point
+        led = next(iter(self._selected_leds))
         h, s, v = self.keyboard.vialrgb_direct_colors[led]
         init_color = QColor.fromHsvF(h / 255.0, s / 255.0, v / 255.0) if (h or s or v) else QColor(Qt.white)
 
@@ -588,15 +687,14 @@ class PerKeyRGBWidget(QWidget):
 
     def on_pick_color_finished(self):
         color = self.dlg_color.selectedColor()
-        if not color.isValid() or self.keyboard is None or not self._selected_positions:
+        if not color.isValid() or self.keyboard is None or not self._selected_leds:
             return
         hf, sf, vf, _ = color.getHsvF()
         if hf < 0:
             hf = 0
         new_h, new_s, new_v = int(255 * hf), int(255 * sf), int(255 * vf)
-        # Update in-memory colors for all selected keys
-        for pos in self._selected_positions:
-            sel_led = self.keyboard.vialrgb_led_map[pos]
+        # Update in-memory colors for all selected LEDs
+        for sel_led in self._selected_leds:
             self.keyboard.vialrgb_direct_colors[sel_led] = (new_h, new_s, new_v)
         # Send the full updated array to firmware in one batched call
         n = self.keyboard.vialrgb_num_leds
@@ -604,10 +702,9 @@ class PerKeyRGBWidget(QWidget):
         self.refresh_key_colors()
 
     def on_reset_key(self):
-        if not self._selected_positions or self.keyboard is None:
+        if not self._selected_leds or self.keyboard is None:
             return
-        for pos in self._selected_positions:
-            sel_led = self.keyboard.vialrgb_led_map[pos]
+        for sel_led in self._selected_leds:
             self.keyboard.vialrgb_direct_colors[sel_led] = (0, 0, 0)
         n = self.keyboard.vialrgb_num_leds
         self.keyboard.set_vialrgb_direct_fastset(0, self.keyboard.vialrgb_direct_colors[:n])
@@ -698,7 +795,9 @@ class IndicatorWidget(QWidget):
         self.setLayout(outer)
 
         help_lbl = QLabel(tr("RGBConfigurator",
-            "Click to select a key. Windows: Ctrl+Click, macOS: Cmd+Click to add/remove from selection.\n"
+            "Pick a colour with the swatch, then click keys: a key is added in that colour, "
+            "recoloured if it has another colour, or removed if it already has it.\n"
+            "Squares under the keyboard are underglow LEDs.\n"
             "Remember to click 'Apply to Keyboard', then 'Save' (bottom-right), for changes to take effect and persist."))
         help_lbl.setWordWrap(True)
         help_lbl.setAlignment(Qt.AlignCenter)
@@ -727,7 +826,7 @@ class IndicatorWidget(QWidget):
         info_row.setContentsMargins(4, 2, 4, 2)
         self._swatch_btn = QPushButton()
         self._swatch_btn.setFixedSize(24, 24)
-        self._swatch_btn.setToolTip(tr("RGBConfigurator", "Click to change color"))
+        self._swatch_btn.setToolTip(tr("RGBConfigurator", "Colour for the keys you click next"))
         self._swatch_btn.clicked.connect(self.on_color_pick)
         info_row.addWidget(self._swatch_btn)
         self._role_name_lbl = QLabel()
@@ -736,6 +835,10 @@ class IndicatorWidget(QWidget):
         self._count_lbl.setStyleSheet("color: grey;")
         info_row.addWidget(self._count_lbl)
         info_row.addStretch()
+        self._btn_paint_role = QPushButton(tr("RGBConfigurator", "Paint All"))
+        self._btn_paint_role.setToolTip(tr("RGBConfigurator", "Give every key in this role the swatch colour"))
+        self._btn_paint_role.clicked.connect(self.on_paint_role)
+        info_row.addWidget(self._btn_paint_role)
         self._btn_clear_role = QPushButton(tr("RGBConfigurator", "Clear Role"))
         self._btn_clear_role.clicked.connect(self.on_clear_role)
         info_row.addWidget(self._btn_clear_role)
@@ -778,11 +881,13 @@ class IndicatorWidget(QWidget):
         self._role_btns[0].setChecked(True)
         if keyboard is None:
             return
-        self.kb_widget.set_keys(keyboard.keys, keyboard.encoders)
+        set_rgb_keys(self.kb_widget, keyboard)
         self._assignments = [
-            {'leds': list(a.get('leds', [])), 'r': a['r'], 'g': a['g'], 'b': a['b']}
+            {'leds': list(a.get('leds', [])), 'r': a['r'], 'g': a['g'], 'b': a['b'],
+             'led_colors': {int(k): tuple(v) for k, v in a.get('led_colors', {}).items()}}
             for a in keyboard.indicator_assignments
         ]
+        self._btn_paint_role.setVisible(self._per_led())
         self._update_role_labels(keyboard)
         self._refresh_display()
 
@@ -819,8 +924,19 @@ class IndicatorWidget(QWidget):
             tr("RGBConfigurator", "— {} key{}").format(n, "s" if n != 1 else ""))
         self._refresh_key_colors()
 
+    def _per_led(self):
+        """True when the firmware keeps a colour per LED (else one colour per role)."""
+        return bool(self.keyboard is not None
+                    and getattr(self.keyboard, 'indicator_led_colors_supported', False))
+
+    def _led_color(self, a, led):
+        """Colour of one LED in a role: its own colour, or the role colour."""
+        if self._per_led() and led in a.get('led_colors', {}):
+            return tuple(a['led_colors'][led])
+        return (a['r'], a['g'], a['b'])
+
     def _refresh_key_colors(self):
-        """Color keys: active-role keys in role color, other-role keys in dim grey."""
+        """Color keys: active-role keys in their colours, other-role keys in dim grey."""
         if self.keyboard is None:
             return
         active_leds = set(self._assignments[self._active_role]['leds'])
@@ -830,11 +946,9 @@ class IndicatorWidget(QWidget):
                 other_leds.update(a['leds'])
 
         for widget in self.kb_widget.widgets:
-            row, col = widget.desc.row, widget.desc.col
-            led = self.keyboard.vialrgb_led_map.get((row, col)) if row is not None else None
+            led = led_for_widget(self.keyboard, widget)
             if led is not None and led in active_leds:
-                a = self._assignments[self._active_role]
-                widget.setBgColor(QColor(a['r'], a['g'], a['b']))
+                widget.setBgColor(QColor(*self._led_color(self._assignments[self._active_role], led)))
             elif led is not None and led in other_leds:
                 widget.setBgColor(QColor(70, 70, 70))
             else:
@@ -859,14 +973,32 @@ class IndicatorWidget(QWidget):
         key = self.kb_widget.active_key
         if key is None or self.keyboard is None:
             return
-        led = self.keyboard.vialrgb_led_map.get((key.desc.row, key.desc.col))
+        led = led_for_widget(self.keyboard, key)
         if led is None:
             return
-        leds = self._assignments[self._active_role]['leds']
-        if led in leds:
-            leds.remove(led)
-        else:
+        a = self._assignments[self._active_role]
+        leds = a['leds']
+        brush = (a['r'], a['g'], a['b'])
+        led_colors = a.setdefault('led_colors', {})
+        if not self._per_led():
+            # one colour per role (older firmware): plain toggle
+            if led in leds:
+                leds.remove(led)
+            else:
+                leds.append(led)
+        elif led not in leds:
             leds.append(led)
+            led_colors[led] = brush
+        elif self._led_color(a, led) != brush:
+            led_colors[led] = brush        # recolour with the current brush
+        else:
+            leds.remove(led)
+            led_colors.pop(led, None)
+        self._refresh_display()
+
+    def on_paint_role(self):
+        a = self._assignments[self._active_role]
+        a['led_colors'] = {led: (a['r'], a['g'], a['b']) for led in a['leds']}
         self._refresh_display()
 
     def on_color_pick(self):
@@ -882,11 +1014,16 @@ class IndicatorWidget(QWidget):
         if not color.isValid():
             return
         a = self._assignments[self._active_role]
+        if self._per_led():
+            # keep the keys already painted: freeze their current colour before the
+            # role colour (which un-painted keys fall back to) changes
+            a['led_colors'] = {led: self._led_color(a, led) for led in a['leds']}
         a['r'], a['g'], a['b'] = color.red(), color.green(), color.blue()
         self._refresh_display()
 
     def on_clear_role(self):
         self._assignments[self._active_role]['leds'] = []
+        self._assignments[self._active_role]['led_colors'] = {}
         self._refresh_display()
 
     def on_apply(self):
@@ -894,6 +1031,7 @@ class IndicatorWidget(QWidget):
             return
         self.keyboard.set_vialrgb_indicator_leds(self._assignments)
         self.keyboard.set_vialrgb_indicator_colors(self._assignments)
+        self.keyboard.set_vialrgb_indicator_led_colors(self._assignments)
 
     # ------------------------------------------------------------------
     # Persistence
@@ -911,7 +1049,8 @@ class IndicatorWidget(QWidget):
                     existing = {"version": 3, "colors": existing}
             existing["version"] = 5
             existing["indicator_assignments"] = [
-                {'leds': list(a['leds']), 'r': a['r'], 'g': a['g'], 'b': a['b']}
+                {'leds': list(a['leds']), 'r': a['r'], 'g': a['g'], 'b': a['b'],
+                 'led_colors': {str(k): list(v) for k, v in a.get('led_colors', {}).items()}}
                 for a in self._assignments
             ]
             with open(path, "w") as f:
@@ -950,8 +1089,9 @@ class IndicatorWidget(QWidget):
                         'r':    int(entry.get('r', 0)),
                         'g':    int(entry.get('g', 0)),
                         'b':    int(entry.get('b', 0)),
+                        'led_colors': {int(k): tuple(v) for k, v in entry.get('led_colors', {}).items()},
                     }
-                self._refresh_all()
+                self._refresh_display()   # was _refresh_all(), which never existed
         except Exception:
             pass
 

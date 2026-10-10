@@ -76,8 +76,17 @@ class Keyboard(ProtocolMacro, ProtocolDynamic, ProtocolTapDance, ProtocolCombo, 
         self.vialrgb_direct_supported = False
         self.vialrgb_num_leds = 0
         self.vialrgb_led_map = {}
+        # LEDs with no matrix position (underglow): list of LED indices, plus
+        # (x, y, flags) for every LED as reported by VIALRGB_GET_LED_INFO
+        self.vialrgb_unkeyed_leds = []
+        self.vialrgb_led_info = []
         self.vialrgb_direct_colors = []
         self.indicator_supported = False
+        # Firmware stores a colour per LED within each role (VIALRGB 0x48). When False the
+        # board only has one colour per role, and 'led_colors' below is ignored.
+        self.indicator_led_colors_supported = False
+        # None = not probed yet, False = firmware has no VIALRGB 0x54 (matrix tester knobs)
+        self.encoder_events_supported = None
         self.trackpad_supported = False
         self.oled_supported = False
         self.oled_config = {
@@ -483,7 +492,9 @@ class Keyboard(ProtocolMacro, ProtocolDynamic, ProtocolTapDance, ProtocolCombo, 
 
         if getattr(self, 'indicator_supported', False):
             data["indicator_assignments"] = [
-                {'leds': list(a['leds']), 'r': a['r'], 'g': a['g'], 'b': a['b']}
+                {'leds': list(a['leds']), 'r': a['r'], 'g': a['g'], 'b': a['b'],
+                 # JSON object keys are strings; restore converts back to int
+                 'led_colors': {str(k): list(v) for k, v in a.get('led_colors', {}).items()}}
                 for a in self.indicator_assignments
             ]
 
@@ -557,10 +568,12 @@ class Keyboard(ProtocolMacro, ProtocolDynamic, ProtocolTapDance, ProtocolCombo, 
                     'r': a.get('r', 0),
                     'g': a.get('g', 0),
                     'b': a.get('b', 0),
+                    'led_colors': {int(k): tuple(v) for k, v in a.get('led_colors', {}).items()},
                 }
             self.indicator_assignments = assignments
             self.set_vialrgb_indicator_leds(assignments)
             self.set_vialrgb_indicator_colors(assignments)
+            self.set_vialrgb_indicator_led_colors(assignments)
 
         if getattr(self, 'trackpad_supported', False) and "trackpad_settings" in data:
             self.set_trackpad_settings(data["trackpad_settings"])
@@ -577,6 +590,12 @@ class Keyboard(ProtocolMacro, ProtocolDynamic, ProtocolTapDance, ProtocolCombo, 
     def reset(self):
         self.usb_send(self.dev, struct.pack("B", 0xB))
         self.dev.close()
+
+    def reset_keymap(self):
+        """Restore the firmware's default keymap and re-read it. Only layers/encoders."""
+        from protocol.constants import CMD_VIA_DYNAMIC_KEYMAP_RESET
+        self.usb_send(self.dev, struct.pack("B", CMD_VIA_DYNAMIC_KEYMAP_RESET), retries=20)
+        self.reload_keymap()
 
     def get_uid(self):
         """ Retrieve UID from the keyboard, explicitly sending a query packet """
@@ -636,6 +655,22 @@ class Keyboard(ProtocolMacro, ProtocolDynamic, ProtocolTapDance, ProtocolCombo, 
 
         self.usb_send(self.dev, struct.pack("BB", CMD_VIA_VIAL_PREFIX, CMD_VIAL_LOCK), retries=20)
 
+    def get_encoder_events(self):
+        """Knob turn counters for the matrix tester (VIALRGB 0x54): list of (ccw, cw) per
+        encoder, wrapping uint8. None when the firmware does not have it (it echoes the
+        request); probed once, then not asked again."""
+        if self.encoder_events_supported is False or not getattr(self, 'lighting_vialrgb', False):
+            return None
+        from protocol.constants import VIALRGB_GET_ENCODER_EVENTS, VIALRGB_ENCODER_EVENTS_MAGIC
+        data = self.usb_send(self.dev, struct.pack("BB", CMD_VIA_LIGHTING_GET_VALUE,
+                                                   VIALRGB_GET_ENCODER_EVENTS), retries=3)[2:]
+        if len(data) < 2 or data[0] != VIALRGB_ENCODER_EVENTS_MAGIC:
+            self.encoder_events_supported = False
+            return None
+        self.encoder_events_supported = True
+        n = min(data[1], (len(data) - 2) // 2)
+        return [(data[2 + i * 2], data[3 + i * 2]) for i in range(n)]
+
     def matrix_poll(self):
         if self.via_protocol < 0:
             return
@@ -692,12 +727,20 @@ class Keyboard(ProtocolMacro, ProtocolDynamic, ProtocolTapDance, ProtocolCombo, 
             return
         self.vialrgb_direct_colors = [(0, 0, 0)] * self.vialrgb_num_leds
         self.vialrgb_led_map = {}
+        self.vialrgb_unkeyed_leds = []
+        self.vialrgb_led_info = []
         for led_idx in range(self.vialrgb_num_leds):
             data = self.usb_send(self.dev, struct.pack("<BBH", CMD_VIA_LIGHTING_GET_VALUE,
                                                        VIALRGB_GET_LED_INFO, led_idx), retries=20)[2:]
+            # x, y (0-224 / 0-64 g_led_config space), flags, then matrix row, col
+            self.vialrgb_led_info.append((data[0], data[1], data[2]))
             row, col = data[3], data[4]
             if row != 0xFF and col != 0xFF:
                 self.vialrgb_led_map[(row, col)] = led_idx
+            else:
+                # Not under a key (underglow): the RGB tabs draw these as extra
+                # LED-only widgets so they can be coloured / used as indicators
+                self.vialrgb_unkeyed_leds.append(led_idx)
         self.vialrgb_direct_supported = True
         self.reload_vialrgb_direct_colors()
 
@@ -764,10 +807,58 @@ class Keyboard(ProtocolMacro, ProtocolDynamic, ProtocolTapDance, ProtocolCombo, 
                 self.indicator_assignments[i]['r'] = data[base]
                 self.indicator_assignments[i]['g'] = data[base + 1]
                 self.indicator_assignments[i]['b'] = data[base + 2]
+        self.reload_vialrgb_indicator_led_colors()
         self.indicator_supported = True
+
+    def reload_vialrgb_indicator_led_colors(self):
+        """Fetch per-LED indicator colours (0x48) into assignments[i]['led_colors'].
+
+        Old firmware echoes the GET, so the first reply carries the role index rather than
+        VIALRGB_INDICATOR_LED_COLORS_MAGIC; then every LED of a role shows the role colour.
+        """
+        from protocol.constants import VIALRGB_GET_INDICATOR_LED_COLORS, \
+            VIALRGB_INDICATOR_LED_COLORS_MAGIC, VIALRGB_INDICATOR_LED_COLORS_MAX
+
+        def read_chunk(role, first):
+            data = self.usb_send(self.dev, struct.pack("BBBB", CMD_VIA_LIGHTING_GET_VALUE,
+                                                       VIALRGB_GET_INDICATOR_LED_COLORS, role, first),
+                                 retries=20)[2:]
+            if len(data) < 2 or data[0] != VIALRGB_INDICATOR_LED_COLORS_MAGIC:
+                return None
+            count = min(data[1], VIALRGB_INDICATOR_LED_COLORS_MAX)
+            return [tuple(data[2 + n * 3: 5 + n * 3]) for n in range(count)]
+
+        for a in self.indicator_assignments:
+            a['led_colors'] = {}
+        self.indicator_led_colors_supported = read_chunk(0, 0) is not None
+        if not self.indicator_led_colors_supported:
+            return
+        if self.vialrgb_num_leds > 64:
+            # LEDs 64.. live in a second mask page (0x45 with role | MASK_HI), which only
+            # firmware with per-LED colours understands -- hence read only now.
+            from protocol.constants import VIALRGB_INDICATOR_MASK_HI
+            for role, a in enumerate(self.indicator_assignments):
+                data = self.usb_send(self.dev, struct.pack("BBB", CMD_VIA_LIGHTING_GET_VALUE,
+                                                           VIALRGB_GET_INDICATOR_LEDS,
+                                                           role | VIALRGB_INDICATOR_MASK_HI),
+                                     retries=20)[2:]
+                hi = int.from_bytes((data + b'\x00' * 8)[:8], 'little')
+                a['leds'] = [l for l in a['leds'] if l < 64] + [
+                    64 + i for i in range(min(self.vialrgb_num_leds - 64, 64)) if (hi >> i) & 1]
+        step = VIALRGB_INDICATOR_LED_COLORS_MAX
+        for role, a in enumerate(self.indicator_assignments):
+            # only the chunks that hold this role's LEDs
+            for first in sorted({led - led % step for led in a['leds']}):
+                colors = read_chunk(role, first)
+                if colors is None:
+                    continue
+                for n, rgb in enumerate(colors):
+                    if first + n in a['leds'] and len(rgb) == 3:
+                        a['led_colors'][first + n] = rgb
 
     def set_vialrgb_indicator_leds(self, assignments):
         """Send per-role bitmasks to the keyboard (one SET request per role)."""
+        hi_page = self.indicator_led_colors_supported and self.vialrgb_num_leds > 64
         for role_idx in range(10):
             leds = assignments[role_idx].get('leds', [])
             mask = 0
@@ -779,7 +870,19 @@ class Keyboard(ProtocolMacro, ProtocolDynamic, ProtocolTapDance, ProtocolCombo, 
                           struct.pack("BBB", CMD_VIA_LIGHTING_SET_VALUE,
                                       VIALRGB_SET_INDICATOR_LEDS, role_idx) + mask_bytes,
                           retries=20)
-            self.indicator_assignments[role_idx]['leds'] = [l for l in leds if l < 64]
+            if hi_page:
+                # LEDs 64.. (72-LED boards): second page, role | MASK_HI
+                from protocol.constants import VIALRGB_INDICATOR_MASK_HI
+                hi = 0
+                for led in leds:
+                    if 64 <= led < 128:
+                        hi |= (1 << (led - 64))
+                self.usb_send(self.dev,
+                              struct.pack("BBB", CMD_VIA_LIGHTING_SET_VALUE, VIALRGB_SET_INDICATOR_LEDS,
+                                          role_idx | VIALRGB_INDICATOR_MASK_HI) + hi.to_bytes(8, 'little'),
+                              retries=20)
+            limit = 128 if hi_page else 64
+            self.indicator_assignments[role_idx]['leds'] = [l for l in leds if l < limit]
 
     def set_vialrgb_indicator_colors(self, colors_per_role):
         """Send 30 bytes of [r,g,b] per role to the keyboard."""
@@ -795,6 +898,31 @@ class Keyboard(ProtocolMacro, ProtocolDynamic, ProtocolTapDance, ProtocolCombo, 
             self.indicator_assignments[i]['r'] = c['r']
             self.indicator_assignments[i]['g'] = c['g']
             self.indicator_assignments[i]['b'] = c['b']
+
+    def set_vialrgb_indicator_led_colors(self, assignments):
+        """Send per-LED indicator colours (0x48). Call after set_vialrgb_indicator_colors():
+        firmware repaints each role in its role colour on a 0x46 SET.
+
+        assignments[i]['led_colors'] maps LED index -> (r, g, b); LEDs without an entry
+        get the role colour. Only chunks holding the role's LEDs are sent.
+        """
+        if not self.indicator_led_colors_supported:
+            return
+        from protocol.constants import VIALRGB_SET_INDICATOR_LED_COLORS, VIALRGB_INDICATOR_LED_COLORS_MAX
+        step = VIALRGB_INDICATOR_LED_COLORS_MAX
+        n_leds = min(self.vialrgb_num_leds, 255)
+        for role, a in enumerate(assignments[:10]):
+            leds = [l for l in a.get('leds', []) if l < n_leds]
+            per_led = {int(k): tuple(v) for k, v in a.get('led_colors', {}).items()}
+            role_rgb = (a['r'], a['g'], a['b'])
+            for first in sorted({led - led % step for led in leds}):
+                count = min(step, n_leds - first)
+                payload = struct.pack("BBBBB", CMD_VIA_LIGHTING_SET_VALUE,
+                                      VIALRGB_SET_INDICATOR_LED_COLORS, role, first, count)
+                for led in range(first, first + count):
+                    payload += bytes(per_led.get(led, role_rgb))
+                self.usb_send(self.dev, payload, retries=20)
+            self.indicator_assignments[role]['led_colors'] = {l: per_led.get(l, role_rgb) for l in leds}
 
     def reload_trackpad_settings(self):
         """Fetch trackpad settings from the keyboard (sub-ID 0x50)."""

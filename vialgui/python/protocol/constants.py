@@ -13,6 +13,9 @@ CMD_VIA_MACRO_GET_BUFFER_SIZE = 0x0D
 CMD_VIA_MACRO_GET_BUFFER = 0x0E
 CMD_VIA_MACRO_SET_BUFFER = 0x0F
 CMD_VIA_GET_LAYER_COUNT = 0x11
+# VIA raw command id_dynamic_keymap_reset (quantum/via.h): restore the firmware default keymap
+# (layers + encoders). Macros, combos, tap dance, key overrides and lighting are not touched.
+CMD_VIA_DYNAMIC_KEYMAP_RESET = 0x06
 CMD_VIA_KEYMAP_GET_BUFFER = 0x12
 CMD_VIA_VIAL_PREFIX = 0xFE
 VIA_LAYOUT_OPTIONS = 0x02
@@ -35,6 +38,17 @@ VIALRGB_GET_INDICATOR_COLORS = 0x46
 VIALRGB_GET_DIRECT_COLORS = 0x47
 VIALRGB_SET_INDICATOR_LEDS = 0x45
 VIALRGB_SET_INDICATOR_COLORS = 0x46
+# Per-LED indicator colours (firmware with per-LED support; older firmware echoes the
+# GET request, so args[0] comes back as the role index instead of the magic)
+VIALRGB_GET_INDICATOR_LED_COLORS = 0x48
+VIALRGB_SET_INDICATOR_LED_COLORS = 0x48
+VIALRGB_INDICATOR_LED_COLORS_MAGIC = 0x49
+VIALRGB_INDICATOR_LED_COLORS_MAX = 9
+# 0x45 with role | this flag = mask for LEDs 64.. (72-LED boards); only sent once 0x48 is confirmed
+VIALRGB_INDICATOR_MASK_HI = 0x80
+# Encoder activity for the matrix tester: GET -> magic, n, [ccw, cw] wrapping counters per encoder
+VIALRGB_GET_ENCODER_EVENTS = 0x54
+VIALRGB_ENCODER_EVENTS_MAGIC = 0x45
 VIALRGB_GET_TRACKPAD_SETTINGS = 0x50
 VIALRGB_SET_TRACKPAD_SETTINGS = 0x50
 VIALRGB_GET_TRACKPAD_LAYERS   = 0x51

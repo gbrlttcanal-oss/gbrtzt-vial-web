@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 import json
 
-from PyQt5.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, QMessageBox, QWidget
+from PyQt5.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, QMessageBox, QWidget, \
+    QSizePolicy
 from PyQt5.QtCore import Qt, pyqtSignal
 
 from any_keycode_dialog import AnyKeycodeDialog
@@ -73,8 +74,25 @@ class KeymapEditor(BasicEditor):
         self.layer_name_widget.setLayout(layer_name_row)
         self.layer_name_widget.hide()
 
+        # Reset layout: its own row under the layer buttons, right-aligned, so it can never
+        # share space with the Layer buttons, the layout-size buttons or the OLED name row.
+        self.btn_reset_layout = QPushButton(tr("KeymapEditor", "Reset layout..."))
+        self.btn_reset_layout.setToolTip(tr("KeymapEditor",
+            "Restore this keyboard's default keymap from the firmware (all layers). "
+            "Macros, combos, tap dance and lighting are kept."))
+        self.btn_reset_layout.clicked.connect(self.on_reset_layout)
+        self.btn_reset_layout.setFixedWidth(140)  # like the other fixed-width buttons here, not the row width
+        reset_row = QHBoxLayout()
+        reset_row.setContentsMargins(0, 2, 0, 2)
+        reset_row.addStretch()
+        reset_row.addWidget(self.btn_reset_layout)
+        self.reset_row_widget = QWidget()
+        self.reset_row_widget.setLayout(reset_row)
+        self.reset_row_widget.hide()
+
         layout = QVBoxLayout()
         layout.addLayout(layout_labels_container)
+        layout.addWidget(self.reset_row_widget)
         layout.addWidget(self.layer_name_widget)
         layout.addWidget(self.container)
         layout.setAlignment(self.container, Qt.AlignHCenter)
@@ -140,6 +158,7 @@ class KeymapEditor(BasicEditor):
 
     def rebuild(self, device):
         super().rebuild(device)
+        self.reset_row_widget.setVisible(self.valid())
         if self.valid():
             self.keyboard = device.keyboard
 
@@ -196,6 +215,25 @@ class KeymapEditor(BasicEditor):
     def do_restore_layout(self, data):
         self.keyboard.restore_layout(data)
         self.refresh_layer_display()
+        self.layout_restored.emit()
+
+    def on_reset_layout(self):
+        if self.keyboard is None:
+            return
+        # non-blocking confirm, same reason as restore_layout(): no nested event loop on the web build
+        self.dlg_reset = QMessageBox(QMessageBox.Warning, "",
+                                     tr("KeymapEditor", "Reset all layers to the keyboard's default layout?\n\n"
+                                                        "Your current layers will be replaced. Macros, combos, "
+                                                        "tap dance, key overrides and lighting are kept.\n\n"
+                                                        "Tip: save your layout first (File -> Save current layout)."),
+                                     QMessageBox.Yes | QMessageBox.No)
+        self.dlg_reset.setModal(True)
+        self.dlg_reset.finished.connect(lambda ret: ret == QMessageBox.Yes and self.do_reset_layout())
+        self.dlg_reset.show()
+
+    def do_reset_layout(self):
+        self.keyboard.reset_keymap()
+        # same path as loading a .vil: main window rebuilds from the keyboard
         self.layout_restored.emit()
 
     def on_any_keycode(self):

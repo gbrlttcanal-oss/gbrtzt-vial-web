@@ -4,6 +4,7 @@ from PyQt5.QtCore import Qt, QTimer, QSettings
 
 import math
 import sys
+import time
 
 from editor.basic_editor import BasicEditor
 from protocol.constants import VIAL_PROTOCOL_MATRIX_TESTER
@@ -68,6 +69,8 @@ class MatrixTest(BasicEditor):
             self.keyboard = device.keyboard
 
             self.keyboardWidget.set_keys(self.keyboard.keys, self.keyboard.encoders)
+            self.encoder_last = None      # last knob counters from the firmware (VIALRGB 0x54)
+            self.encoder_flash = {}       # (idx, dir) -> time the arrow stops showing pressed
         self.keyboardWidget.setEnabled(self.valid())
 
     def valid(self):
@@ -137,6 +140,30 @@ class MatrixTest(BasicEditor):
                 col_mod = (col % 8)
                 # write to matrix array
                 matrix[row][col] = (row_data[col_byte] >> col_mod) & 1
+
+        # knobs: firmware turn counters (VIALRGB 0x54). A changed counter flashes that
+        # knob's arrow as pressed for a moment and marks it tested, like a key.
+        try:
+            counts = self.keyboard.get_encoder_events()
+        except (RuntimeError, ValueError):
+            counts = None
+        now = time.monotonic()
+        if counts is not None:
+            last = getattr(self, 'encoder_last', None)
+            if last is not None:
+                for idx, pair in enumerate(counts):
+                    for direction in (0, 1):
+                        if idx < len(last) and pair[direction] != last[idx][direction]:
+                            self.encoder_flash[(idx, direction)] = now + 0.25
+            self.encoder_last = counts
+        flash = getattr(self, 'encoder_flash', {})
+        for w in self.keyboardWidget.widgets:
+            if getattr(w.desc, 'encoder_idx', None) is not None:
+                until = flash.get((w.desc.encoder_idx, w.desc.encoder_dir))
+                active = until is not None and now < until
+                w.setPressed(active)
+                if active:
+                    w.setOn(True)
 
         # write matrix state to keyboard widget
         pressed = set()
