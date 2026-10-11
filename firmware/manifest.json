@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "generated": "2026-09-16T04:18:21Z",
+  "generated": "2026-10-11T01:27:36Z",
   "changelog_url": "https://xcmkb-docs.gitbook.io/doc/firmware-changelog",
   "boards": [
     {
@@ -173,15 +173,25 @@
       "batch": "",
       "batch_no": 3,
       "batch_label": "Batch 3&4 (Latest)",
-      "latest": "5.10",
+      "latest": "5.11",
       "firmware": [
+        {
+          "version": "5.11",
+          "beta": false,
+          "product": "SoflePLUS2 TPS43 v5.11",
+          "file": "xcmkb_sofleplus2_tps43-511.uf2",
+          "size": 211968,
+          "sha256": "ddc4625cf8a5ce0db63f1d277352706f6f21617e371f548a3a730b9387b0a468",
+          "date": "2026-10-11",
+          "notes": ""
+        },
         {
           "version": "5.10",
           "beta": false,
           "product": "SoflePLUS2 TPS43 v5.10",
           "file": "xcmkb_sofleplus2_tps43-510.uf2",
           "size": 207872,
-          "sha256": "882a83cb2573f3a076c2f7e0e1779f47724a9e6b2e8ac01cfa8b5dec22febbbf",
+          "sha256": "803022af62ad25b3de5bda352b6dde5ae29c552ef31c5b6d5ce4657bcb4312a3",
           "date": "2026-09-16",
           "notes": ""
         }
@@ -196,15 +206,25 @@
       "batch": "",
       "batch_no": 3,
       "batch_label": "Batch 3&4 (Latest)",
-      "latest": "5.10",
+      "latest": "5.11",
       "firmware": [
+        {
+          "version": "5.11",
+          "beta": false,
+          "product": "SoflePLUS2 TPS65 v5.11",
+          "file": "xcmkb_sofleplus2_tps65-511.uf2",
+          "size": 205824,
+          "sha256": "fe96d256bb19d81f1c9c350a2a2a257447b63dcdaed41c69e8e208d3195e8326",
+          "date": "2026-10-11",
+          "notes": ""
+        },
         {
           "version": "5.10",
           "beta": false,
           "product": "SoflePLUS2 TPS65 v5.10",
           "file": "xcmkb_sofleplus2_tps65-510.uf2",
           "size": 201728,
-          "sha256": "a6da771a2941262de4f7dc5fbbe3778820c1349a560ffb146e62a0888837cde7",
+          "sha256": "3efebe61b38e03e083c5a5487ba8ba6bbbf92aac00ce751193d37bbbf39f7623",
           "date": "2026-09-16",
           "notes": ""
         }
@@ -219,16 +239,49 @@
       "batch": "",
       "batch_no": 3,
       "batch_label": "Batch 3&4 (Latest)",
-      "latest": "5.10h",
+      "latest": "5.11h",
       "firmware": [
+        {
+          "version": "5.11h",
+          "beta": false,
+          "product": "SoflePLUS2 TPS65 Horizontal v5.11h",
+          "file": "xcmkb_sofleplus2_tps65-511h.uf2",
+          "size": 205824,
+          "sha256": "ba08a605b71be94f636106f07cc43cb226ee028b730dd655cc9767e1f8ef66a1",
+          "date": "2026-10-11",
+          "notes": ""
+        },
         {
           "version": "5.10h",
           "beta": false,
           "product": "SoflePLUS2 TPS65 Horizontal v5.10h",
           "file": "xcmkb_sofleplus2_tps65-510h.uf2",
           "size": 201728,
-          "sha256": "0047528d0983c3fc1601610460ece6e0d2f7517822efc7b9169ac46b9abb5fdf",
+          "sha256": "23db3593025399b2a78f0894d075ef6e2802cb82dbdf1d3693d843a69f2936ad",
           "date": "2026-09-08",
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "id": "corneplus2/tps43",
+      "name": "CornePLUS2 - TPS43",
+      "family": "CornePLUS2",
+      "trackpad": "TPS43",
+      "horizontal": false,
+      "batch": "",
+      "batch_no": 11,
+      "batch_label": "CornePLUS2",
+      "latest": "5.11",
+      "firmware": [
+        {
+          "version": "5.11",
+          "beta": false,
+          "product": "CornePLUS2 TPS43 v5.11",
+          "file": "xcmkb_corneplus2_511.uf2",
+          "size": 204288,
+          "sha256": "82b40916bd18c41a1845ee05659a1839429cffb900727725710de3724c67d1fa",
+          "date": "2026-10-11",
           "notes": ""
         }
       ]
