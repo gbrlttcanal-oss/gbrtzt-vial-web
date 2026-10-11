@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "generated": "2026-10-11T01:27:36Z",
+  "generated": "2026-10-11T02:18:11Z",
   "changelog_url": "https://xcmkb-docs.gitbook.io/doc/firmware-changelog",
   "boards": [
     {
@@ -181,7 +181,7 @@
           "product": "SoflePLUS2 TPS43 v5.11",
           "file": "xcmkb_sofleplus2_tps43-511.uf2",
           "size": 211968,
-          "sha256": "ddc4625cf8a5ce0db63f1d277352706f6f21617e371f548a3a730b9387b0a468",
+          "sha256": "139391611856d77edea70444f72095796aaba5bc1b1abf9bd8cf8bae0ec03e08",
           "date": "2026-10-11",
           "notes": ""
         },
@@ -213,8 +213,8 @@
           "beta": false,
           "product": "SoflePLUS2 TPS65 v5.11",
           "file": "xcmkb_sofleplus2_tps65-511.uf2",
-          "size": 205824,
-          "sha256": "fe96d256bb19d81f1c9c350a2a2a257447b63dcdaed41c69e8e208d3195e8326",
+          "size": 206336,
+          "sha256": "b981bfa2659e2438ad7110df99fc1901a1684d5b7c237727241015df14603a81",
           "date": "2026-10-11",
           "notes": ""
         },
@@ -246,8 +246,8 @@
           "beta": false,
           "product": "SoflePLUS2 TPS65 Horizontal v5.11h",
           "file": "xcmkb_sofleplus2_tps65-511h.uf2",
-          "size": 205824,
-          "sha256": "ba08a605b71be94f636106f07cc43cb226ee028b730dd655cc9767e1f8ef66a1",
+          "size": 206336,
+          "sha256": "c8f79b029be51ba73848de0b3f1b6ad9ef55bf7118208d93f9f807d8916914ad",
           "date": "2026-10-11",
           "notes": ""
         },
@@ -280,7 +280,7 @@
           "product": "CornePLUS2 TPS43 v5.11",
           "file": "xcmkb_corneplus2_511.uf2",
           "size": 204288,
-          "sha256": "82b40916bd18c41a1845ee05659a1839429cffb900727725710de3724c67d1fa",
+          "sha256": "2c0d8e6d82ec3849eea4e22a29a478a54d11c8a3f4110c7eb63e995f84decf81",
           "date": "2026-10-11",
           "notes": ""
         }
