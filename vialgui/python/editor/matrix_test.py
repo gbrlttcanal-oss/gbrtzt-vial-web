@@ -148,6 +148,7 @@ class MatrixTest(BasicEditor):
         except (RuntimeError, ValueError):
             counts = None
         now = time.monotonic()
+        knob_turned = False
         if counts is not None:
             last = getattr(self, 'encoder_last', None)
             if last is not None:
@@ -155,6 +156,7 @@ class MatrixTest(BasicEditor):
                     for direction in (0, 1):
                         if idx < len(last) and pair[direction] != last[idx][direction]:
                             self.encoder_flash[(idx, direction)] = now + 0.25
+                            knob_turned = True
             self.encoder_last = counts
         flash = getattr(self, 'encoder_flash', {})
         for w in self.keyboardWidget.widgets:
@@ -178,9 +180,13 @@ class MatrixTest(BasicEditor):
                         w.setOn(True)
                         pressed.add((row, col))
 
-        # sound on a newly registered key: how many keys are down together tells a clean press from a short
-        if pressed - self.pressed and self.chk_sound.isChecked():
-            play_sound("ok" if len(pressed) == 1 else "multi")
+        # sound on a newly registered key: how many keys are down together tells a clean press from a short.
+        # A knob turn beeps like a single key (it is one event, not a press held with others)
+        if self.chk_sound.isChecked():
+            if pressed - self.pressed:
+                play_sound("ok" if len(pressed) == 1 else "multi")
+            elif knob_turned:
+                play_sound("ok")
         self.pressed = pressed
 
         self.keyboardWidget.update_layout()

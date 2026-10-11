@@ -374,6 +374,10 @@ Plan:
       double beep if two or more are down at once (a short, a ghost, or a roll). Only keys in the layout
       count. `util.play_sound()` → new `vialglue.play_sound(name)` (`main.c`) → the page plays it with
       WebAudio. The matrix tester stays hidden in demo mode.
+      2026-10-11: the matrix tester is shown in demo mode again (user's call: clients see the real app). It
+      draws the board with nothing pressed, since the recording answers the matrix poll with an empty matrix;
+      knob turns beep like a single key on boards with VIALRGB 0x54. Reset layout in demo restores the recorded
+      stock keymap and knobs (DemoDevice handles VIA 0x06); DummyKeyboard.reset_keymap() blanks it.
 - [x] H — the published recording is `demo/sofleplus2-tps65-510h.json` (the page's `DEMO_BOARD`). The user decided
       2026-09-30 that 510 vs 510h does not matter, since only the trackpad rotation differs, so the demo keeps
       the board's own identity. The board's personal keymap was replaced by the stock one with the new
@@ -403,17 +407,81 @@ Status 2026-09-30 (not committed, not pushed):
   `BUILD_ID` (`util/build_id.py`), so any newly flashed build wipes the saved layout.
 - Chrome/Edge only, as decided: `show_error` hides the demo button along with *Start Vial*.
 
-### Phase 9 — knob (encoder) test in the matrix tester — proposed 2026-09-30, needs a firmware release
-Facts (verified 2026-09-30): the matrix tester reads `VIA_SWITCH_MATRIX_STATE`, which carries only the key
-matrix. The knobs are not in it (they show as widgets with `encoder_idx`/`encoder_dir` but no row/col), and
-no firmware command reports knob turns to the host. In vial-qmk, every knob step from both halves passes
-through `encoder_handle_queue()` (`quantum/encoder.c:30`) on the USB half, so one core change covers all
-XCMKB boards. Custom GETs are dispatched in `quantum/vialrgb.c` (`vialrgb_get_value`); 0x50–0x53 are taken
-and 0x54 is reserved for the firmware ID (Phase 6 C2).
-Plan:
-- Firmware (vial-qmk core): a uint8 step counter per knob and direction, bumped in `encoder_handle_queue`,
-  and a new VialRGB GET 0x55 that returns them with a marker byte, so the app can tell older firmware
-  (which echoes the request).
-- App (matrix tester): poll 0x55 with the matrix; when a counter moves, light that knob's ↺/↻ widget and
-  play the "ok" sound. The option does not appear on firmware without 0x55.
-- Works only on boards flashed with the release that carries it (v5.11 or later).
+### Phase 9 — test knobs and D-pad / disc keys in the matrix tester — firmware + app, awaiting decision
+Facts (verified 2026-09-30):
+- The matrix tester polls VIA `id_switch_matrix_state` every 20 ms. The reply is `matrix_get_row()` per row
+  (`quantum/via.c:250`), so it covers only the scanned matrix. Sofle: 10 rows × 1 byte = data[2..11]; data[12..31]
+  is unused (the host sends zeros and the firmware leaves them). Corne: 8 rows.
+- Knobs are not in the matrix; in the app they are widgets with `encoder_idx`/`encoder_dir`. Every knob step from
+  both halves is dequeued on the USB half in `encoder_handle_queue()` (`quantum/encoder.c:30`).
+- Keys driven by direct pins (QMK DIP-switch feature, both halves via `SPLIT_DIP_SWITCH_ENABLE`): the keymap's
+  `dip_switch_update_user` fakes a key event at a matrix position (`action_exec`). That never sets a matrix bit,
+  so the tester can never light those keys:
+  - SoflePLUS2 (latest batch) and 2U: D-pad centre, GP12 → [4,6] ("Mouse 1").
+  - SoflePLUS2 ano / Legendary RGB (batch 1): all five D-pad presses, GP12–GP16 → [4..0,6].
+  - CornePLUS2: disc click on each half, GP8 → [3,0] and [7,0].
+  - SoflePLUS1 v1.10 registers keycodes directly (no matrix position): out of scope.
+- The published v5.10 builds for ano / Legendary RGB / 2U date from 2026-09-14, before the `via.c`
+  bootloader-jump change (2026-09-16 08:38, Phase 6 C). SoflePLUS2's (2026-09-16 09:20–12:29) include it. So those
+  three batches need a new release anyway before *Update now* can reboot them from the page.
+Plan (nothing started):
+- Firmware core, all boards at once: uint8 step counters per knob and direction, bumped in `encoder_handle_queue`.
+  After the rows of the matrix-state reply: a marker byte, the knob count and the counters. A weak hook
+  `via_matrix_state_row_extra(row)` (default 0) is ORed into each row.
+- Firmware per keymap (the 13 v5.10 keymaps + CornePLUS2 510, ~8 lines each): the DIP handler also records
+  pressed state, latched until the next poll so a tap shorter than 20 ms is not lost, and implements the hook
+  from its existing position table.
+- App: DIP-driven keys light with no app change (they arrive as matrix bits). The tester reads the marker and
+  counters to light the knob's ↺/↻ widgets and count them. Older firmware (no marker): unchanged.
+- Hardware test: each half as the USB half (EE_HANDS), both knobs, every D-pad direction on a batch-1 board, and
+  the Corne disc clicks.
+What a release costs:
+- v5.11 for every family: rebuild every keymap, bump PRODUCT (naming rule), put the UF2s and notes into
+  `firmware/`, changelog.
+- Clients: flash both halves. A new build wipes the saved layout (random BUILD_ID), so they save a .vil first;
+  the Updates tab already walks them through that.
+- Boards that are not updated keep working; they just cannot test knobs or D-pad/disc keys.
+Recommendation: do not cut a release for this alone. Ship it in the next v5.11, which ano / Legendary RGB / 2U
+need anyway for the bootloader jump. Boards leaving the workshop get the latest firmware anyway, so the QC benefit
+arrives with the first release that carries it.
+
+### Phase 10 — matrix tester: registered-key count and overlap check — app only, awaiting confirmation
+Asked 2026-09-30: "show no overlay key during testing, all keys registered properly (total count)". Read as:
+confirm that no keys register together and count how many keys have registered.
+- A status line under the keyboard: "Registered 42 / 65 · no overlaps", ending as "All 65 keys registered ✓".
+  Knobs join it ("knobs 3 / 4") once Phase 9 firmware is on the board.
+- Total = distinct matrix positions in the layout (Sofle 65). That includes DIP-driven keys, which cannot register
+  before Phase 9 firmware; the status line says so rather than stopping short without explanation.
+- Overlap = two or more keys that go down in the same scan (≤ 20 ms apart). That is what a short or a ghost looks
+  like, and a human roll almost never lands inside 20 ms. The keys turn red and are listed ("Overlap: Q + W").
+  A key that is already down when the test starts, or never releases, is flagged as stuck.
+- Sounds follow the same rule: the warning double beep only for an overlap (today any two keys held at once
+  beep, rolls included), plus a chime when everything has registered.
+- *Reset* clears the count and the marks. Works on current firmware; can ship any time.
+
+### Phase 11 — custom domain `vial-web.xcmkb.com` — option A chosen and live 2026-10-02
+Facts (verified 2026-10-02):
+- xcmkb.com is not on Netlify. Its nameservers are Google's `ns-cloud-c1..c4.googledomains.com` (Squarespace
+  Domains, formerly Google Domains, or Google Cloud DNS); the apex and `www` point at Shopify. So the record for
+  `vial-web` goes in that DNS panel whichever host serves the site. `vial-web.xcmkb.com` does not exist yet.
+- The build uses only relative URLs (no `/vial-web/` prefix anywhere), so it runs at a domain root unchanged.
+- A first visit downloads ~12 MB gzipped (`main-*.wasm` 8.4 MB, `.data` 3.7 MB, `.js` 81 KB).
+- Netlify Free (credit plan): 300 credits/month, a production deploy costs 15 and bandwidth 20/GB (since
+  April 2026), i.e. ~15 GB ≈ 1,200 first visits *or* 20 deploys; sites pause when credits run out. Accounts
+  from before Sept 2025 may still be on the legacy plan (100 GB). Netlify can't run the build itself (40 min
+  toolchain), so CI would push `src/build` with `netlify-cli` (secrets `NETLIFY_AUTH_TOKEN`, `NETLIFY_SITE_ID`).
+- Changing the origin resets per-browser state: IDBFS app data (colour presets, indicator config), QSettings,
+  the saved demo layout, `xcmkb_flash_usb_ok`, and the WebHID/WebUSB device grants. Better done early.
+Options:
+- **A (recommended)** — keep GitHub Pages and point the subdomain at it. DNS: `CNAME vial-web → superxc3.github.io.`
+  (+ optional account-level domain verification TXT `_github-pages-challenge-superxc3`). Repo Settings →
+  Pages → Custom domain `vial-web.xcmkb.com`, then *Enforce HTTPS* once the certificate is issued (WebHID
+  needs HTTPS). The old URL 301-redirects to the new one. No build/workflow change; README URL updated.
+- B — host on Netlify: `_headers` with real COOP/COEP (drops the first-visit service-worker reload), deploy
+  job in `main.yml` via `netlify-cli`, DNS `CNAME vial-web → <site>.netlify.app`. Costs credits per push.
+Status 2026-10-02: DNS `CNAME vial-web → superxc3.github.io` and the Pages custom domain set by the user.
+Let's Encrypt certificate issued (CN=vial-web.xcmkb.com, 2026-10-02 → 2026-12-31); `superxc3.github.io/vial-web/…`
+301-redirects with path and query kept. README points at the new URL.
+- [ ] *Enforce HTTPS* (until then `http://` is served as-is and the old URL redirects to `http://`)
+- [ ] Account-level verification of xcmkb.com (TXT `_github-pages-challenge-superxc3`)
+- [ ] Links outside this repo (GitBook, shop) → `https://vial-web.xcmkb.com/`

@@ -6,7 +6,8 @@ forked from [vial-kb/vial-web](https://github.com/vial-kb/vial-web).
 The Vial application itself (Python/PyQt5) lives in `vialgui/` — vendored from
 [superxc3/vial-gui@xcmkb](https://github.com/superxc3/vial-gui/tree/xcmkb) at f737912 and maintained here
 since — and is compiled to WebAssembly (CPython 3.11 + PyQt5 via Emscripten); there is no separate
-JavaScript port. CI builds on every push and deploys `xcmkb` to GitHub Pages; `main` mirrors upstream.
+JavaScript port. CI builds on every push and deploys `xcmkb` to GitHub Pages, served at
+https://vial-web.xcmkb.com/; `main` mirrors upstream.
 
 ## Building
 
@@ -29,7 +30,7 @@ such as GitHub Pages that cannot set headers. WebHID requires Chrome/Chromium/Ed
 
 ## Demo
 
-*Try the demo* on the start page, or a link to `https://superxc3.github.io/vial-web/?demo`, runs the full app
+*Try the demo* on the start page, or a link to `https://vial-web.xcmkb.com/?demo`, runs the full app
 without a keyboard. It uses `demo/sofleplus2-tps65-510h.json`, a recording of what a real board answers
 (`vialgui/python/protocol/demo_device.py` replays it; edits last until the page reloads). To refresh it for a
 new firmware, plug a board in and run:

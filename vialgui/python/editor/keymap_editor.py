@@ -65,34 +65,26 @@ class KeymapEditor(BasicEditor):
 
         layer_name_row = QHBoxLayout()
         layer_name_row.setContentsMargins(0, 2, 0, 2)
-        layer_name_row.addWidget(QLabel("OLED name:"))
+        self.oled_label = QLabel("OLED name:")
+        layer_name_row.addWidget(self.oled_label)
         layer_name_row.addWidget(self.layer_name_edit)
         layer_name_row.addWidget(self.layer_name_counter)
         layer_name_row.addWidget(self.layer_name_btn)
         layer_name_row.addStretch()
-        self.layer_name_widget = QWidget()
-        self.layer_name_widget.setLayout(layer_name_row)
-        self.layer_name_widget.hide()
-
-        # Reset layout: its own row under the layer buttons, right-aligned, so it can never
-        # share space with the Layer buttons, the layout-size buttons or the OLED name row.
+        # Reset layout sits at the right end of this bottom row (always shown with a keyboard)
         self.btn_reset_layout = QPushButton(tr("KeymapEditor", "Reset layout..."))
         self.btn_reset_layout.setToolTip(tr("KeymapEditor",
             "Restore this keyboard's default keymap from the firmware (all layers). "
             "Macros, combos, tap dance and lighting are kept."))
         self.btn_reset_layout.clicked.connect(self.on_reset_layout)
-        self.btn_reset_layout.setFixedWidth(140)  # like the other fixed-width buttons here, not the row width
-        reset_row = QHBoxLayout()
-        reset_row.setContentsMargins(0, 2, 0, 2)
-        reset_row.addStretch()
-        reset_row.addWidget(self.btn_reset_layout)
-        self.reset_row_widget = QWidget()
-        self.reset_row_widget.setLayout(reset_row)
-        self.reset_row_widget.hide()
+        self.btn_reset_layout.setFixedWidth(140)
+        layer_name_row.addWidget(self.btn_reset_layout)
+        self.layer_name_widget = QWidget()
+        self.layer_name_widget.setLayout(layer_name_row)
+        self.layer_name_widget.hide()
 
         layout = QVBoxLayout()
         layout.addLayout(layout_labels_container)
-        layout.addWidget(self.reset_row_widget)
         layout.addWidget(self.layer_name_widget)
         layout.addWidget(self.container)
         layout.setAlignment(self.container, Qt.AlignHCenter)
@@ -158,7 +150,7 @@ class KeymapEditor(BasicEditor):
 
     def rebuild(self, device):
         super().rebuild(device)
-        self.reset_row_widget.setVisible(self.valid())
+        self.layer_name_widget.setVisible(self.valid())
         if self.valid():
             self.keyboard = device.keyboard
 
@@ -174,11 +166,9 @@ class KeymapEditor(BasicEditor):
             TabbedKeycodes.tray.recreate_keycode_buttons()
             self.refresh_layer_display()
 
-            if getattr(self.keyboard, 'oled_supported', False):
-                self.layer_name_widget.show()
+            self._set_oled_fields_visible(getattr(self.keyboard, 'oled_supported', False))
+            if self._oled_fields_on:
                 self._update_layer_name_field()
-            else:
-                self.layer_name_widget.hide()
         else:
             self.layer_name_widget.hide()
         self.container.setEnabled(self.valid())
@@ -281,8 +271,14 @@ class KeymapEditor(BasicEditor):
         self._update_layer_name_field()
         self.refresh_layer_display()
 
+    def _set_oled_fields_visible(self, on):
+        """The OLED name fields only exist on boards with an OLED; the row itself stays for Reset layout."""
+        self._oled_fields_on = bool(on)
+        for w in (self.oled_label, self.layer_name_edit, self.layer_name_counter, self.layer_name_btn):
+            w.setVisible(self._oled_fields_on)
+
     def _update_layer_name_field(self):
-        if not self.layer_name_widget.isVisible():
+        if not getattr(self, '_oled_fields_on', False):
             return
         names = self.keyboard.oled_config.get('layer_names', [])
         name = names[self.current_layer] if self.current_layer < len(names) else ''

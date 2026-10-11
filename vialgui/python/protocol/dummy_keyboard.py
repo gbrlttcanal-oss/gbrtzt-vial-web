@@ -23,6 +23,10 @@ class DummyKeyboard(Keyboard):
         if self.layout_labels:
             self.layout_options = 0
 
+    def reset_keymap(self):
+        # no firmware to ask: the dummy's default keymap is the blank one reload_keymap() builds
+        self.reload_keymap()
+
     def reload_macros_early(self):
         self.macro_count = 16
         self.macro_memory = 900

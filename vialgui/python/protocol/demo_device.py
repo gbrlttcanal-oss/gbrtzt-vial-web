@@ -15,7 +15,7 @@ from protocol.constants import CMD_VIA_SET_KEYBOARD_VALUE, CMD_VIA_GET_KEYBOARD_
     CMD_VIA_KEYMAP_GET_BUFFER, CMD_VIA_VIAL_PREFIX, CMD_VIAL_GET_ENCODER, CMD_VIAL_SET_ENCODER, \
     CMD_VIAL_QMK_SETTINGS_GET, CMD_VIAL_QMK_SETTINGS_SET, CMD_VIAL_QMK_SETTINGS_RESET, CMD_VIAL_DYNAMIC_ENTRY_OP, \
     VIALRGB_SET_MODE, VIALRGB_SET_TRACKPAD_SETTINGS, VIALRGB_SET_TRACKPAD_LAYERS, VIALRGB_SET_POWER_SETTINGS, \
-    VIALRGB_SET_OLED_CONFIG
+    VIALRGB_SET_OLED_CONFIG, CMD_VIA_DYNAMIC_KEYMAP_RESET
 from util import MSG_LEN
 
 # VialRGB settings whose GET answer is [0x08, sub-id] + the arguments of the last SET
@@ -87,6 +87,14 @@ class DemoDevice:
             layer, row, col = msg[1:4]
             offset = (layer * self.rows * self.cols + row * self.cols + col) * 2
             self.keymap[offset:offset + 2] = msg[4:6]
+            return msg
+        if cmd == CMD_VIA_DYNAMIC_KEYMAP_RESET:
+            # Reset layout: back to the recorded layers and knobs, which are the firmware's stock
+            # keymap (demo/stock-keymap.py), like dynamic_keymap_reset() on the board
+            self.keymap = self._buffer(CMD_VIA_KEYMAP_GET_BUFFER)
+            encoder_get = bytes([CMD_VIA_VIAL_PREFIX, CMD_VIAL_GET_ENCODER])
+            for req in [r for r in self.answers if r[:2] == encoder_get]:
+                self.answers[req] = self.captured.get(req, self.answers[req])
             return msg
         if cmd == CMD_VIA_SET_KEYBOARD_VALUE:
             self.answers[_key(bytes([CMD_VIA_GET_KEYBOARD_VALUE]) + msg[1:2])] = \

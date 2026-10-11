@@ -379,8 +379,9 @@ class MainWindow(QMainWindow):
         for container, lbl in self.editors:
             if not container.valid():
                 continue
-            # these need a physical keyboard
-            if util.DEMO_CAPTURE and container in (self.matrix_tester, self.updates):
+            # needs a physical keyboard. The matrix tester stays: it shows the board as it will look,
+            # with nothing pressed (the recording answers the matrix poll with an empty matrix)
+            if util.DEMO_CAPTURE and container is self.updates:
                 continue
 
             c = EditorContainer(container)
