@@ -66,7 +66,7 @@ class MainWindow(QMainWindow):
         if self.settings.value("maximized", False, bool):
             self.showMaximized()
 
-        themes.Theme.set_theme(self.get_theme())
+        themes.Theme.set_theme("Olivia" if sys.platform == "emscripten" else self.get_theme())
 
         self.combobox_devices = QComboBox()
         self.combobox_devices.currentIndexChanged.connect(self.on_device_selected)
