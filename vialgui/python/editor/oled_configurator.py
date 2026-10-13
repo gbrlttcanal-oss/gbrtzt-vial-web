@@ -8,7 +8,7 @@ from editor.basic_editor import BasicEditor
 from vial_device import VialKeyboard
 
 _PATCH = "Patch: F47A"
-_MAX_CHARS = 5
+_MAX_CHARS = 7
 
 
 def _make_scrollable(inner_layout):
@@ -45,10 +45,10 @@ def _make_char_field(placeholder=""):
 
     edit = QLineEdit()
     edit.setMaxLength(_MAX_CHARS)
-    edit.setFixedWidth(80)
+    edit.setFixedWidth(105)
     edit.setPlaceholderText(placeholder)
 
-    counter = QLabel("0/5")
+    counter = QLabel("0/7")
     counter.setFixedWidth(28)
 
     def _on_change(text):
@@ -78,7 +78,7 @@ class OledConfigurator(BasicEditor):
 
         note = QLabel(
             "Text shown on the left OLED (master side).\n"
-            "Maximum 5 characters — the OLED display width limit.\n"
+            "Maximum 7 characters on Corvo48 V7.\n"
             "Layer names are set per-layer in the Keymap tab.\n"
             "Changes take effect immediately after clicking Apply.\n"
             "OLED sleep time is synced with the Lighting (RGB) sleep time — kindly adjust it on the Lighting tab."
@@ -90,7 +90,7 @@ class OledConfigurator(BasicEditor):
         kb_group = QGroupBox("Keyboard Name  (OLED row 1)")
         kb_layout = QHBoxLayout()
         kb_layout.setContentsMargins(8, 8, 8, 8)
-        self.row1_field = _make_char_field("SOFLE")
+        self.row1_field = _make_char_field("GbrTzT")
         kb_layout.addWidget(QLabel("Display name:"))
         kb_layout.addWidget(self.row1_field)
         kb_layout.addStretch()
