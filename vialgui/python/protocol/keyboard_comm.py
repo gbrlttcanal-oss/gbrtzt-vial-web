@@ -982,25 +982,47 @@ class Keyboard(ProtocolMacro, ProtocolDynamic, ProtocolTapDance, ProtocolCombo, 
         self.usb_send(self.dev, msg, retries=20)
         self.trackpad_layers = dict(layers)
 
+   
     def reload_oled_config(self):
-        """Fetch OLED label config from keyboard (sub-ID 0x52)."""
+        """GbrTzT: OLED com suporte a 5 ou 7 caracteres."""
         from protocol.constants import VIALRGB_GET_OLED_CONFIG
-        # Fetch row1 (item 0xFF)
-        data = self.usb_send(self.dev,
-                             struct.pack("BBB", CMD_VIA_LIGHTING_GET_VALUE,
-                                         VIALRGB_GET_OLED_CONFIG, 0xFF),
-                             retries=20)
+
+        data = self.usb_send(
+            self.dev,
+            struct.pack("BBB", CMD_VIA_LIGHTING_GET_VALUE,
+                        VIALRGB_GET_OLED_CONFIG, 0xFF),
+            retries=20
+        )
+
         self.oled_config['row1'] = data[3:8].rstrip(b'\x00').decode('ascii', errors='replace')
-        # Fetch each layer name (items 0-9)
+        self.oled_name_max_chars = 5
+
+        # Verificar suporte ao OLED de 7 caracteres da V7
+        try:
+            data = self.usb_send(
+                self.dev,
+                struct.pack("BB", CMD_VIA_LIGHTING_GET_VALUE, 0x53),
+                retries=20
+            )
+            if len(data) >= 10 and data[2] == 0xA7:
+                self.oled_name_max_chars = 7
+                self.oled_config['row1'] = data[3:10].split(b'\x00', 1)[0].decode('ascii', errors='replace')
+        except Exception:
+            pass
+
         names = []
         for i in range(10):
-            data = self.usb_send(self.dev,
-                                 struct.pack("BBB", CMD_VIA_LIGHTING_GET_VALUE,
-                                             VIALRGB_GET_OLED_CONFIG, i),
-                                 retries=20)
+            data = self.usb_send(
+                self.dev,
+                struct.pack("BBB", CMD_VIA_LIGHTING_GET_VALUE,
+                            VIALRGB_GET_OLED_CONFIG, i),
+                retries=20
+            )
             names.append(data[3:8].rstrip(b'\x00').decode('ascii', errors='replace'))
+
         self.oled_config['layer_names'] = names
         self.oled_supported = True
+
 
     def set_oled_config(self, row1, layer_names):
         """Push OLED label config to keyboard (sub-ID 0x52), one item per packet."""
