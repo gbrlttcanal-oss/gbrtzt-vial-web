@@ -1024,7 +1024,7 @@ class Keyboard(ProtocolMacro, ProtocolDynamic, ProtocolTapDance, ProtocolCombo, 
         self.oled_supported = True
 
 
-      def set_oled_config(self, row1, layer_names):
+    def set_oled_config(self, row1, layer_names):
         """GbrTzT: salvar nome OLED e nomes das camadas."""
         from protocol.constants import VIALRGB_SET_OLED_CONFIG
 
