@@ -1024,23 +1024,28 @@ class Keyboard(ProtocolMacro, ProtocolDynamic, ProtocolTapDance, ProtocolCombo, 
         self.oled_supported = True
 
 
-    def set_oled_config(self, row1, layer_names):
-        """Push OLED label config to keyboard (sub-ID 0x52), one item per packet."""
+      def set_oled_config(self, row1, layer_names):
+        """GbrTzT: salvar nome OLED e nomes das camadas."""
         from protocol.constants import VIALRGB_SET_OLED_CONFIG
-        def _send(item, name):
-            nb = name.encode('ascii', errors='replace')[:5].ljust(5, b'\x00')
-            self.usb_send(self.dev,
-                          struct.pack("BBB5s", CMD_VIA_LIGHTING_SET_VALUE,
-                                      VIALRGB_SET_OLED_CONFIG, item, nb),
-                          retries=20)
-        _send(0xFF, row1)
-        for i, name in enumerate(layer_names[:10]):
-            _send(i, name)
-        self.oled_config['row1'] = row1
-        self.oled_config['layer_names'] = list(layer_names[:10])
 
-        def set_oled_row1(self, name):
-        """GbrTzT: enviar nome com ate 7 caracteres na V7."""
+        # Nome principal: 5 ou 7 caracteres conforme o firmware
+        self.set_oled_row1(row1)
+
+        # Nomes das camadas: continuam com ate 5 caracteres
+        for i, name in enumerate(layer_names[:10]):
+            nb = name.encode('ascii', errors='replace')[:5].ljust(5, b'\x00')
+            self.usb_send(
+                self.dev,
+                struct.pack("BBB5s", CMD_VIA_LIGHTING_SET_VALUE,
+                            VIALRGB_SET_OLED_CONFIG, i, nb),
+                retries=20
+            )
+
+        self.oled_config['layer_names'] = [name[:5] for name in layer_names[:10]]
+
+    def set_oled_row1(self, name):
+        """GbrTzT: permitir nomes OLED com 5 ou 7 caracteres."""
+
         if getattr(self, 'oled_name_max_chars', 5) == 7:
             nb = name.encode('ascii', errors='replace')[:7].ljust(7, b'\x00')
             self.usb_send(
@@ -1049,6 +1054,7 @@ class Keyboard(ProtocolMacro, ProtocolDynamic, ProtocolTapDance, ProtocolCombo, 
                 retries=20
             )
             self.oled_config['row1'] = name[:7]
+
         else:
             from protocol.constants import VIALRGB_SET_OLED_CONFIG
             nb = name.encode('ascii', errors='replace')[:5].ljust(5, b'\x00')
@@ -1059,6 +1065,7 @@ class Keyboard(ProtocolMacro, ProtocolDynamic, ProtocolTapDance, ProtocolCombo, 
                 retries=20
             )
             self.oled_config['row1'] = name[:5]
+
 
     def set_oled_layer_name(self, layer_idx, name):
         """Push a single layer name to the OLED (layer_idx 0-9)."""
