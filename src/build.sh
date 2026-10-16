@@ -95,6 +95,7 @@ emcc \
     -llzma \
     ../main.c
 cp ../index.html .
+cp ../gbrtzt-logo.png .
 cp ../coi-serviceworker.js .
 cp -r ../flash .
 mkdir -p firmware

@@ -192,6 +192,110 @@ body {
     font-size: 12px;
     letter-spacing: 2px;
 }
+
+/* GbrTzT - Identidade roxa exclusivamente para a tela inicial */
+#startup {
+    background: #09080D;
+    color: #F6F4FC;
+    overflow-y: auto;
+    box-sizing: border-box;
+    padding: 28px 18px;
+}
+#startup_inner {
+    width: min(520px, 100%);
+    max-width: calc(100vw - 36px);
+    margin: auto;
+    box-sizing: border-box;
+    padding: 34px 30px 28px;
+    background: #15131E;
+    border: 1px solid #292337;
+    border-radius: 20px;
+    box-shadow: 0 20px 65px rgba(0, 0, 0, .36);
+}
+#gbrtzt-brand {
+    margin: 0 0 25px;
+}
+#gbrtzt-brand .gbrtzt-logo {
+    display: block;
+    height: auto;
+    width: min(240px, 80%);
+    margin: 0 auto 18px;
+}
+#gbrtzt-brand h1 {
+    color: #F6F4FC;
+    font-size: 28px;
+    font-weight: 650;
+    margin: 0 0 10px;
+}
+#gbrtzt-brand p {
+    color: #AAA5B9;
+    font-size: 11px;
+    line-height: 1.6;
+    letter-spacing: 1.5px;
+    margin: 0;
+}
+#startup_btn, #demo_btn {
+    box-sizing: border-box;
+    display: block;
+    width: min(340px, 100%);
+    margin-left: auto;
+    margin-right: auto;
+    padding: 16px 18px;
+    border-radius: 10px;
+    font-size: 16px;
+    font-weight: 600;
+    transition: background-color .15s ease, border-color .15s ease;
+}
+#startup_btn {
+    background: #8C59ED;
+    color: #F6F4FC;
+    border: 1px solid #9A65FF;
+}
+#startup_btn:hover:not(:disabled) {
+    background: #6640BA;
+}
+#demo_btn {
+    background: #1A1724;
+    color: #F6F4FC;
+    border: 1px solid #6640BA;
+    margin-top: 12px;
+    font-size: 14px;
+}
+#demo_btn:hover:not(:disabled) {
+    background: #0F0E16;
+    border-color: #9A65FF;
+}
+#startup_btn:disabled, #demo_btn:disabled {
+    opacity: .55;
+    cursor: wait;
+}
+#startup #notice {
+    border-top: 1px solid #30283E;
+    padding-top: 18px;
+    margin: 25px auto 0;
+    max-width: 420px;
+    color: #AAA5B9;
+    font-size: 12px;
+    line-height: 1.7;
+}
+#startup #notice a, #startup #error a {
+    color: #9A65FF;
+}
+#startup #version {
+    position: fixed;
+    color: #AAA5B9;
+    font-size: 10px;
+    margin: 9px 13px;
+}
+#startup #error {
+    color: #F6F4FC;
+    font-size: 12px;
+}
+@media (max-width: 560px) {
+    #startup_inner { padding: 24px 15px; }
+    #startup #version { display: none; }
+}
+
 </style>
 </head>
 <body>
@@ -199,7 +303,7 @@ body {
 <div id="startup">
     <div id="startup_inner">
         <div id="gbrtzt-brand">
-  <h1>GbrTzT <span>Vial Web</span></h1>
+  <img class="gbrtzt-logo" src="gbrtzt-logo.png" alt="GbrTzT" width="240" height="65">\n  <h1>Vial Web</h1>
   <p>CONFIGURADOR DE TECLADOS PERSONALIZADOS</p>
 </div>
         <input id="startup_btn" type="button" onclick="connect()" value="Start Vial" disabled="true" /><br>
