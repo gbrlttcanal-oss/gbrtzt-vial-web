@@ -89,6 +89,8 @@ class Keyboard(ProtocolMacro, ProtocolDynamic, ProtocolTapDance, ProtocolCombo, 
         self.encoder_events_supported = None
         self.trackpad_supported = False
         self.oled_supported = False
+        self.oled_presets_supported = False
+        self.oled_preset = {'mode': 0, 'preset': 0}
         self.oled_config = {
             'row1': 'SOFLE',
             'layer_names': ['L{}'.format(i) for i in range(10)],
@@ -1021,6 +1023,19 @@ class Keyboard(ProtocolMacro, ProtocolDynamic, ProtocolTapDance, ProtocolCombo, 
             names.append(data[3:8].rstrip(b'\x00').decode('ascii', errors='replace'))
 
         self.oled_config['layer_names'] = names
+        self.oled_presets_supported = False
+        try:
+            response = self.usb_send(
+                self.dev,
+                struct.pack("BB", CMD_VIA_LIGHTING_GET_VALUE, 0x55),
+                retries=20
+            )
+            if (len(response) >= 6 and response[2] == 0xB8
+                    and response[3] in (0, 1) and response[4] in (0, 1, 2)):
+                self.oled_presets_supported = True
+                self.oled_preset = {'mode': response[3], 'preset': response[4]}
+        except Exception:
+            pass
         self.oled_supported = True
 
 
@@ -1066,6 +1081,19 @@ class Keyboard(ProtocolMacro, ProtocolDynamic, ProtocolTapDance, ProtocolCombo, 
             )
             self.oled_config['row1'] = name[:5]
 
+
+    def set_oled_preset(self, mode, preset):
+        """Corvo48 Plus V11: par de imagens; somente o OLED esquerdo e usado."""
+        if not self.oled_presets_supported:
+            return
+        if mode not in (0, 1) or preset not in (0, 1, 2):
+            raise ValueError("Invalid OLED preset")
+        self.usb_send(
+            self.dev,
+            struct.pack("BBBB", CMD_VIA_LIGHTING_SET_VALUE, 0x55, mode, preset),
+            retries=20
+        )
+        self.oled_preset = {'mode': mode, 'preset': preset}
 
     def set_oled_layer_name(self, layer_idx, name):
         """Push a single layer name to the OLED (layer_idx 0-9)."""
