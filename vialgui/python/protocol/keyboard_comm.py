@@ -90,6 +90,7 @@ class Keyboard(ProtocolMacro, ProtocolDynamic, ProtocolTapDance, ProtocolCombo, 
         self.trackpad_supported = False
         self.oled_supported = False
         self.oled_presets_supported = False
+        self.oled_preset_count = 0
         self.oled_preset = {'mode': 0, 'preset': 0}
         self.oled_config = {
             'row1': 'SOFLE',
@@ -1024,6 +1025,7 @@ class Keyboard(ProtocolMacro, ProtocolDynamic, ProtocolTapDance, ProtocolCombo, 
 
         self.oled_config['layer_names'] = names
         self.oled_presets_supported = False
+        self.oled_preset_count = 0
         try:
             response = self.usb_send(
                 self.dev,
@@ -1031,8 +1033,11 @@ class Keyboard(ProtocolMacro, ProtocolDynamic, ProtocolTapDance, ProtocolCombo, 
                 retries=20
             )
             if (len(response) >= 6 and response[2] == 0xB8
-                    and response[3] in (0, 1) and response[4] in (0, 1, 2)):
+                    and response[3] in (0, 1)
+                    and response[5] in (3, 6)
+                    and response[4] < response[5]):
                 self.oled_presets_supported = True
+                self.oled_preset_count = response[5]
                 self.oled_preset = {'mode': response[3], 'preset': response[4]}
         except Exception:
             pass
@@ -1083,10 +1088,10 @@ class Keyboard(ProtocolMacro, ProtocolDynamic, ProtocolTapDance, ProtocolCombo, 
 
 
     def set_oled_preset(self, mode, preset):
-        """Corvo48 Plus V11: par de imagens; somente o OLED esquerdo e usado."""
+        """Corvo48 Plus V11/V12: somente OLED esquerdo e usado."""
         if not self.oled_presets_supported:
             return
-        if mode not in (0, 1) or preset not in (0, 1, 2):
+        if mode not in (0, 1) or not (0 <= preset < self.oled_preset_count):
             raise ValueError("Invalid OLED preset")
         self.usb_send(
             self.dev,
