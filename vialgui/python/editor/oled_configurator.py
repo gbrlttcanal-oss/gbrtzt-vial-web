@@ -3,7 +3,7 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout,
                              QLabel, QLineEdit, QPushButton, QGroupBox,
                              QScrollArea, QFrame, QSizePolicy, QTabWidget, QComboBox)
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QPixmap
+from PyQt5.QtGui import QPixmap, QTransform
 from pathlib import Path
 
 from editor.basic_editor import BasicEditor
@@ -135,7 +135,7 @@ class OledConfigurator(BasicEditor):
         presets_layout.addWidget(self.mode_combo)
         presets_layout.addWidget(QLabel("Preset:"))
         self.preset_combo = QComboBox()
-        self.preset_combo.addItems(["Samurai", "Corvo 1", "Corvo 2"])
+        self.preset_combo.addItems(["Oni", "Cat", "Punisher", "Skull", "Alchemy 1", "Alchemy 2"])
         presets_layout.addWidget(self.preset_combo)
 
         preview_row = QHBoxLayout()
@@ -178,12 +178,22 @@ class OledConfigurator(BasicEditor):
         self.row1_field._edit.setText(cfg.get('row1', 'SOFLE'))
         current = getattr(self.keyboard, 'oled_preset', {'mode': 0, 'preset': 0})
         self.mode_combo.setCurrentIndex(current.get('mode', 0))
-        self.preset_combo.setCurrentIndex(current.get('preset', 0))
-        self._update_preview()
         supported = getattr(self.keyboard, 'oled_presets_supported', False)
+        count = getattr(self.keyboard, 'oled_preset_count', 0)
+        # V11 ships 3 older bitmaps; V12 ships 6 different bitmaps.
+        self.preset_combo.blockSignals(True)
+        self.preset_combo.clear()
+        if count == 3:
+            self.preset_combo.addItems(["Samurai", "Corvo 1", "Corvo 2"])
+        else:
+            self.preset_combo.addItems(["Oni", "Cat", "Punisher", "Skull", "Alchemy 1", "Alchemy 2"])
+        self.preset_combo.setCurrentIndex(min(current.get('preset', 0), self.preset_combo.count() - 1))
+        self.preset_combo.blockSignals(False)
+        self._update_preview()
         self.btn_apply_preset.setEnabled(supported)
         self.preset_status.setText(
-            "Corvo48 Plus V11: selecao de imagens habilitada."
+            ("Corvo48 Plus V12: 6 presets OLED disponiveis." if count == 6
+             else "Corvo48 Plus V11: 3 presets OLED disponiveis.")
             if supported else
             "Este firmware nao implementa presets OLED. O modo Texto continua disponivel."
         )
@@ -196,12 +206,23 @@ class OledConfigurator(BasicEditor):
         self.keyboard.set_oled_row1(self.row1_field._edit.text())
 
     def _update_preview(self, *args):
-        names = ["samurai", "corvo1", "corvo2"]
-        preset = names[max(0, min(2, self.preset_combo.currentIndex()))]
+        v11 = (getattr(self.keyboard, 'oled_preset_count', 0) == 3)
+        names = (["samurai", "corvo1", "corvo2"] if v11 else
+                 ["samurai", "cat", "punisher", "skull", "alchemy1", "alchemy2"])
+        idx = max(0, min(len(names) - 1, self.preset_combo.currentIndex()))
+        name = names[idx]
+        base = Path(__file__).parent / "oled_images"
         for label, side in ((self.preview_left, "esquerdo"),
                             (self.preview_right, "direito")):
-            path = Path(__file__).parent / "oled_images" / (preset + "-" + side + ".png")
-            pixmap = QPixmap(str(path))
+            if v11 or name == "samurai":
+                # Oni reuses the original Samurai artwork; V11 keeps old previews.
+                path = base / (name + "-" + side + ".png")
+                pixmap = QPixmap(str(path))
+            else:
+                path = base / (name + "-esquerdo.png")
+                pixmap = QPixmap(str(path))
+                if side == "direito" and not pixmap.isNull():
+                    pixmap = pixmap.transformed(QTransform().scale(-1, 1))
             if pixmap.isNull():
                 label.setText("Previa indisponivel")
             else:
