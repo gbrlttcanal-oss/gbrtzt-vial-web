@@ -54,6 +54,9 @@ class MatrixTest(BasicEditor):
         self.device = None
         self.polling = False
         self.pressed = set()
+        self._unlock_confirmed = False
+        self._next_unlock_check = 0.0
+        self._last_encoder_poll = 0.0
 
         self.timer = QTimer()
         self.timer.timeout.connect(self.matrix_poller)
@@ -94,18 +97,34 @@ class MatrixTest(BasicEditor):
             self.timer.stop()
             return
 
-        try:
-            unlocked = self.keyboard.get_unlock_status(3)
-        except (RuntimeError, ValueError):
-            self.timer.stop()
-            return
+        # The unlock state changes rarely. Query at 1 s intervals while
+        # unlocked, and at 100 ms intervals while waiting for an unlock.
+        # Unlike a one-time probe, this notices Security -> Lock as well.
+        now = time.monotonic()
+        if now >= self._next_unlock_check:
+            try:
+                unlocked = bool(self.keyboard.get_unlock_status(3))
+            except (RuntimeError, ValueError):
+                self.timer.stop()
+                return
 
-        if not unlocked:
+            was_unlocked = self._unlock_confirmed
+            self._unlock_confirmed = unlocked
+            self._next_unlock_check = now + (1.0 if unlocked else 0.1)
+
+            if was_unlocked and not unlocked:
+                self.pressed.clear()
+                self.encoder_last = None
+                self.encoder_flash.clear()
+                for widget in self.keyboardWidget.widgets:
+                    widget.setPressed(False)
+                self.keyboardWidget.update()
+
+        if not self._unlock_confirmed:
             self.unlock_btn.show()
             self.unlock_lbl.show()
             return
 
-        # we're unlocked, so hide unlock button and label
         self.unlock_btn.hide()
         self.unlock_lbl.hide()
 
@@ -143,12 +162,19 @@ class MatrixTest(BasicEditor):
 
         # knobs: firmware turn counters (VIALRGB 0x54). A changed counter flashes that
         # knob's arrow as pressed for a moment and marks it tested, like a key.
-        try:
-            counts = self.keyboard.get_encoder_events()
-        except (RuntimeError, ValueError):
-            counts = None
+        # Encoder counters accumulate on the device; reading them every
+        # 120 ms retains the ability to detect turns without extra HID I/O
+        # on every 20 ms matrix poll. Snapshot at activation avoids stale events.
+        counts = None
         now = time.monotonic()
+        if now - self._last_encoder_poll >= 0.12:
+            self._last_encoder_poll = now
+            try:
+                counts = self.keyboard.get_encoder_events()
+            except (RuntimeError, ValueError):
+                counts = None
         knob_turned = False
+        visual_changed = False
         if counts is not None:
             last = getattr(self, 'encoder_last', None)
             if last is not None:
@@ -163,9 +189,12 @@ class MatrixTest(BasicEditor):
             if getattr(w.desc, 'encoder_idx', None) is not None:
                 until = flash.get((w.desc.encoder_idx, w.desc.encoder_dir))
                 active = until is not None and now < until
-                w.setPressed(active)
-                if active:
+                if bool(w.pressed) != active:
+                    w.setPressed(active)
+                    visual_changed = True
+                if active and not w.on:
                     w.setOn(True)
+                    visual_changed = True
 
         # write matrix state to keyboard widget
         pressed = set()
@@ -175,9 +204,14 @@ class MatrixTest(BasicEditor):
                 col = w.desc.col
 
                 if row < len(matrix) and col < len(matrix[row]):
-                    w.setPressed(matrix[row][col])
-                    if matrix[row][col]:
-                        w.setOn(True)
+                    is_pressed = bool(matrix[row][col])
+                    if bool(w.pressed) != is_pressed:
+                        w.setPressed(is_pressed)
+                        visual_changed = True
+                    if is_pressed:
+                        if not w.on:
+                            w.setOn(True)
+                            visual_changed = True
                         pressed.add((row, col))
 
         # sound on a newly registered key: how many keys are down together tells a clean press from a short.
@@ -189,15 +223,30 @@ class MatrixTest(BasicEditor):
                 play_sound("ok")
         self.pressed = pressed
 
-        self.keyboardWidget.update_layout()
-        self.keyboardWidget.update()
-        self.keyboardWidget.updateGeometry()
+        # Geometry and key positions do not change during a matrix poll.
+        # Only repaint when pressed/tested state changed.
+        if visual_changed:
+            self.keyboardWidget.update()
 
     def unlock(self):
-        Unlocker.unlock(self.keyboard)
+        # The dialog runs a nested event loop; suspend polling while it is
+        # active, then immediately recheck the unlocked state.
+        self.timer.stop()
+        try:
+            Unlocker.unlock(self.keyboard)
+        finally:
+            self._unlock_confirmed = False
+            self._next_unlock_check = 0.0
+            if self.valid():
+                self.timer.start(20)
 
     def activate(self):
         self.pressed = set()
+        self.encoder_last = None
+        self.encoder_flash = {}
+        self._unlock_confirmed = False
+        self._next_unlock_check = 0.0
+        self._last_encoder_poll = 0.0
         self.grabber.grabKeyboard()
         self.timer.start(20)
 
